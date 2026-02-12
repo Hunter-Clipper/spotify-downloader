@@ -130,7 +130,7 @@ docker compose up -d
 - **Album art preview** on paste (Spotify oEmbed)
 - **Per-track progress** with determinate progress bar
 - **Drag & drop** Spotify URLs onto the page
-- **Session download history** with "Download Again"
+- **Download history** with track context, re-download, per-item removal, and clear all
 - **Toast notifications** + browser notifications (background tab)
 - **Completion chime** (Web Audio API, mute toggle)
 - **Mobile-responsive** layout with `prefers-reduced-motion` support
@@ -259,6 +259,28 @@ tmpfs: [/tmp:noexec,size=2G]          # Ephemeral, non-executable temp
 | **Sharer** | Shareable download links (time-limited), collaborative playlists, QR code for mobile download |
 | **Accessibility** | Full keyboard navigation, screen reader ARIA labels, high contrast theme |
 | **Integration** | Webhook on completion, Telegram/Discord bot, Plex/Jellyfin auto-import |
+
+<br>
+
+## Changelog
+
+### v2.0.2
+- **Fix:** Download history now shows track names, album/playlist titles, and track counts instead of just "N tracks downloaded"
+- **New:** Per-item remove button on each history entry
+- **New:** Clear All button to wipe download history
+
+### v2.0.0
+- Multi-format downloads (MP3, FLAC, WAV, OGG) with configurable bitrate
+- Batch URL support (multiple links at once)
+- Album art preview via Spotify oEmbed
+- Per-track SSE progress with determinate progress bar
+- Drag & drop, toast notifications, browser notifications, completion chime
+- AES-256-GCM encrypted credential storage in browser
+- Session download history with re-download
+- Mobile-responsive layout with `prefers-reduced-motion` support
+
+### v1.0.0
+- Initial release — single-track MP3 downloads with basic web UI
 
 <br>
 
