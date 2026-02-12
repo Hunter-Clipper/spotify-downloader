@@ -371,7 +371,9 @@ async def progress(job_id: str):
 
             job.zip_filename = zip_filename
 
-            yield f"data: DONE:{len(music_files)} tracks downloaded\n\n"
+            track_names = [f.stem for f in sorted(music_files, key=lambda x: x.name)]
+            names_joined = ";;".join(track_names)
+            yield f"data: DONE:{len(music_files)}|{names_joined}\n\n"
         except Exception as e:
             yield f"data: ERROR: {str(e)}\n\n"
         finally:

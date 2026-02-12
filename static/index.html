@@ -763,6 +763,49 @@
             color: var(--spotify-green);
         }
 
+        .history-item-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .history-item .btn-history-remove {
+            border-color: transparent;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            font-size: 15px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+
+        .history-item .btn-history-remove:hover {
+            color: #E74C3C;
+            border-color: rgba(231, 76, 60, 0.3);
+            background: rgba(231, 76, 60, 0.1);
+        }
+
+        .btn-clear-history {
+            background: none;
+            border: 1px solid rgba(231, 76, 60, 0.3);
+            color: #E74C3C;
+            padding: 3px 10px;
+            border-radius: 50px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .btn-clear-history:hover {
+            background: rgba(231, 76, 60, 0.1);
+        }
+
         .footer {
             margin-top: 40px;
             color: var(--spotify-text-sub);
@@ -954,6 +997,12 @@
                 padding: 6px 12px;
                 font-size: 12px;
             }
+
+            .history-item .btn-history-remove {
+                padding: 0;
+                width: 28px;
+                height: 28px;
+            }
         }
     </style>
 </head>
@@ -1118,7 +1167,10 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                     Recent Downloads
                 </h4>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <button class="btn-clear-history" onclick="event.stopPropagation();clearHistory()">Clear All</button>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
             </div>
             <div class="history-list" id="historyList"></div>
         </div>
@@ -1316,6 +1368,7 @@
         // ===== Preview (debounced) =====
         let previewTimeout = null;
         let lastPreviewUrl = '';
+        let currentPreviewTitle = '';
 
         function triggerPreview() {
             const urls = getUrls();
@@ -1326,6 +1379,7 @@
             clearTimeout(previewTimeout);
             if (!firstUrl) {
                 previewCard.classList.remove('active');
+                currentPreviewTitle = '';
                 return;
             }
 
@@ -1343,8 +1397,10 @@
                         previewTitle.textContent = data.title;
                         previewType.textContent = data.type;
                         previewCard.classList.add('active');
+                        currentPreviewTitle = data.title || '';
                     } else {
                         previewCard.classList.remove('active');
+                        currentPreviewTitle = '';
                     }
                 } catch {
                     previewCard.classList.remove('active');
@@ -1501,7 +1557,18 @@
 
                     if (msg.startsWith('DONE:')) {
                         evtSource.close();
-                        const info = msg.replace('DONE:', '');
+                        const payload = msg.replace('DONE:', '');
+                        let trackCount = 0;
+                        let trackNames = [];
+                        if (payload.includes('|')) {
+                            const pipeIdx = payload.indexOf('|');
+                            trackCount = parseInt(payload.substring(0, pipeIdx), 10) || 0;
+                            const namesStr = payload.substring(pipeIdx + 1);
+                            trackNames = namesStr ? namesStr.split(';;').filter(n => n) : [];
+                        } else {
+                            trackCount = parseInt(payload, 10) || 0;
+                        }
+                        const info = `${trackCount} track${trackCount !== 1 ? 's' : ''} downloaded`;
                         statusIcon.classList.remove('spinning');
                         statusIcon.innerHTML = '<circle cx="12" cy="12" r="10" fill="none" stroke="#1DB954" stroke-width="2"/><path d="M8 12l3 3 5-5" stroke="#1DB954" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
                         statusText.textContent = `Done \u2014 ${info}`;
@@ -1513,7 +1580,7 @@
                         showToast(`Download complete: ${info}`);
                         playChime();
                         sendBrowserNotification(`Download complete: ${info}`);
-                        addToHistory(urls, formatSelect.value, info);
+                        addToHistory(urls, formatSelect.value, trackCount, trackNames);
                     } else if (msg.startsWith('ERROR:')) {
                         evtSource.close();
                         const errText = msg.replace('ERROR:', '').trim();
@@ -1660,12 +1727,25 @@
             sessionStorage.setItem('dl_history', JSON.stringify(history.slice(0, 20)));
         }
 
-        function addToHistory(urls, format, info) {
+        function addToHistory(urls, format, trackCount, trackNames = []) {
             const history = getHistory();
+            // Build a descriptive title from preview or track names
+            let title = '';
+            if (currentPreviewTitle && urls.length === 1) {
+                title = currentPreviewTitle;
+            } else if (trackNames.length === 1) {
+                title = trackNames[0];
+            } else if (trackNames.length > 1) {
+                title = trackNames[0] + ' + ' + (trackNames.length - 1) + ' more';
+            } else {
+                title = urls.length === 1 ? urls[0] : urls.length + ' URLs';
+            }
             history.unshift({
                 urls: urls,
                 format: format,
-                info: info,
+                trackCount: trackCount,
+                trackNames: trackNames,
+                title: title,
                 time: new Date().toLocaleTimeString(),
             });
             saveHistory(history);
@@ -1679,20 +1759,39 @@
                 return;
             }
             historySection.classList.add('active');
-            historyList.innerHTML = history.map((item, i) => `
+            historyList.innerHTML = history.map((item, i) => {
+                const title = item.title || item.info || item.urls[0] || 'Download';
+                const count = item.trackCount || 0;
+                const trackInfo = count ? `${count} track${count !== 1 ? 's' : ''}` : (item.info || '');
+                return `
                 <div class="history-item">
                     <div class="history-item-info">
-                        <div class="history-item-title">${escapeHtml(item.info || item.urls[0] || 'Download')}</div>
-                        <div class="history-item-meta">${escapeHtml(item.format.toUpperCase())} &middot; ${escapeHtml(item.time)}</div>
+                        <div class="history-item-title">${escapeHtml(title)}</div>
+                        <div class="history-item-meta">${escapeHtml(item.format.toUpperCase())} &middot; ${escapeHtml(trackInfo)} &middot; ${escapeHtml(item.time)}</div>
                     </div>
-                    <button onclick="redownload(${i})">Download Again</button>
-                </div>
-            `).join('');
+                    <div class="history-item-actions">
+                        <button onclick="redownload(${i})">Again</button>
+                        <button class="btn-history-remove" onclick="removeHistoryItem(${i})" title="Remove">&times;</button>
+                    </div>
+                </div>`;
+            }).join('');
         }
 
         function toggleHistory() {
             historyHeader.classList.toggle('expanded');
             historyList.classList.toggle('expanded');
+        }
+
+        function removeHistoryItem(index) {
+            const history = getHistory();
+            history.splice(index, 1);
+            saveHistory(history);
+            renderHistory();
+        }
+
+        function clearHistory() {
+            sessionStorage.removeItem('dl_history');
+            renderHistory();
         }
 
         function redownload(index) {
