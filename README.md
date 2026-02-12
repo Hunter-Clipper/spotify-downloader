@@ -20,7 +20,7 @@
 
 <br><br>
 
-> **Paste a Spotify link. Get a ZIP. That's it.**
+**Paste a Spotify link. Get a ZIP. That's it.**
 
 <br>
 
