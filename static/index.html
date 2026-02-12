@@ -32,9 +32,10 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
             padding: 20px;
-            overflow: hidden;
+            overflow-y: auto;
+            overflow-x: hidden;
         }
 
         body::before {
@@ -50,6 +51,12 @@
             z-index: -1;
         }
 
+        @media (prefers-reduced-motion: reduce) {
+            body::before { animation: none; }
+            .progress-bar-fill.indeterminate { animation: none; width: 100%; opacity: 0.3; }
+            .status-icon.spinning { animation: none; }
+        }
+
         @keyframes bgShift {
             0% { transform: translate(0, 0) rotate(0deg); }
             100% { transform: translate(-5%, 5%) rotate(3deg); }
@@ -59,6 +66,7 @@
             width: 100%;
             max-width: 560px;
             text-align: center;
+            padding-top: 40px;
         }
 
         /* Logo */
@@ -88,7 +96,7 @@
             margin-top: 6px;
         }
 
-        /* Settings gear - top right of container */
+        /* Settings gear */
         .settings-toggle {
             position: absolute;
             top: 0;
@@ -112,55 +120,156 @@
 
         .settings-toggle.has-creds svg { stroke: var(--spotify-green); }
 
-        /* Input area */
+        /* Textarea input area */
         .input-group {
             position: relative;
-            margin-bottom: 20px;
+            margin-bottom: 8px;
         }
 
-        .input-group input {
+        .input-group textarea {
             width: 100%;
-            padding: 16px 20px;
-            padding-right: 130px;
+            padding: 14px 18px;
             background: var(--spotify-card);
             border: 1px solid var(--spotify-border);
-            border-radius: 50px;
+            border-radius: 16px;
             color: var(--spotify-text);
             font-size: 15px;
+            font-family: inherit;
             outline: none;
             transition: border-color 0.2s, box-shadow 0.2s;
+            resize: none;
+            min-height: 52px;
+            max-height: 200px;
+            overflow-y: auto;
+            line-height: 1.5;
         }
 
-        .input-group input::placeholder { color: var(--spotify-text-sub); }
+        .input-group textarea::placeholder { color: var(--spotify-text-sub); }
 
-        .input-group input:focus {
+        .input-group textarea:focus {
             border-color: var(--spotify-green);
             box-shadow: 0 0 0 3px rgba(29, 185, 84, 0.15);
         }
 
-        .input-group button {
-            position: absolute;
-            right: 5px;
-            top: 50%;
-            transform: translateY(-50%);
-            padding: 10px 24px;
+        .input-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding: 0 4px;
+        }
+
+        .link-count {
+            color: var(--spotify-text-sub);
+            font-size: 12px;
+        }
+
+        .link-count strong { color: var(--spotify-green); }
+
+        .size-estimate {
+            color: var(--spotify-text-sub);
+            font-size: 12px;
+        }
+
+        /* Options row */
+        .options-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .option-group {
+            flex: 1;
+            min-width: 100px;
+        }
+
+        .option-group label {
+            display: block;
+            font-size: 11px;
+            color: var(--spotify-text-sub);
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+            text-align: left;
+        }
+
+        .option-group select {
+            width: 100%;
+            padding: 8px 12px;
+            background: var(--spotify-card);
+            border: 1px solid var(--spotify-border);
+            border-radius: 8px;
+            color: var(--spotify-text);
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+            cursor: pointer;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23B3B3B3' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            padding-right: 30px;
+            transition: border-color 0.2s;
+        }
+
+        .option-group select:focus {
+            border-color: var(--spotify-green);
+        }
+
+        .option-group select:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 100px;
+            padding-top: 18px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--spotify-green);
+            cursor: pointer;
+        }
+
+        .checkbox-group label {
+            font-size: 12px;
+            color: var(--spotify-text-sub);
+            cursor: pointer;
+            text-transform: none;
+            letter-spacing: 0;
+            font-weight: 500;
+        }
+
+        /* Download button in input area */
+        .go-btn {
+            width: 100%;
+            padding: 14px;
             background: var(--spotify-green);
             color: var(--spotify-dark);
             border: none;
             border-radius: 50px;
-            font-size: 14px;
+            font-size: 15px;
             font-weight: 700;
             cursor: pointer;
             transition: all 0.2s;
             letter-spacing: 0.3px;
+            margin-bottom: 16px;
         }
 
-        .input-group button:hover:not(:disabled) {
+        .go-btn:hover:not(:disabled) {
             background: var(--spotify-green-hover);
-            transform: translateY(-50%) scale(1.03);
+            transform: scale(1.02);
         }
 
-        .input-group button:disabled {
+        .go-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
@@ -187,6 +296,52 @@
             border-radius: 50%;
             background: var(--spotify-green);
             display: inline-block;
+        }
+
+        /* Preview card */
+        .preview-card {
+            display: none;
+            background: var(--spotify-card);
+            border: 1px solid var(--spotify-border);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 16px;
+            text-align: left;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .preview-card.active {
+            display: flex;
+            animation: fadeSlideIn 0.3s ease;
+        }
+
+        .preview-card img {
+            width: 60px;
+            height: 60px;
+            border-radius: 6px;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+
+        .preview-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .preview-title {
+            font-size: 14px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .preview-type {
+            font-size: 12px;
+            color: var(--spotify-green);
+            text-transform: capitalize;
+            margin-top: 2px;
         }
 
         /* Settings panel */
@@ -281,7 +436,6 @@
 
         .btn-clear:hover { background: rgba(231, 76, 60, 0.1); }
 
-        /* Security info box */
         .security-info {
             background: rgba(29, 185, 84, 0.06);
             border: 1px solid rgba(29, 185, 84, 0.15);
@@ -306,7 +460,6 @@
 
         .security-info a:hover { text-decoration: underline; }
 
-        /* Saved indicator */
         .save-flash {
             color: var(--spotify-green);
             font-size: 12px;
@@ -392,16 +545,87 @@
             100% { transform: translateX(400%); }
         }
 
-        .log {
-            max-height: 160px;
+        /* Per-track progress list */
+        .track-list {
+            text-align: left;
+            margin-bottom: 8px;
+            max-height: 200px;
             overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--spotify-border) transparent;
+        }
+
+        .track-list::-webkit-scrollbar { width: 4px; }
+        .track-list::-webkit-scrollbar-thumb { background: var(--spotify-border); border-radius: 2px; }
+
+        .track-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 0;
+            font-size: 12px;
+        }
+
+        .track-icon {
+            width: 14px;
+            height: 14px;
+            flex-shrink: 0;
+        }
+
+        .track-icon.pending { color: var(--spotify-text-sub); }
+        .track-icon.downloading { color: var(--spotify-green); animation: spin 1s linear infinite; }
+        .track-icon.done { color: var(--spotify-green); }
+        .track-icon.error { color: #E74C3C; }
+
+        .track-name {
+            color: var(--spotify-text-sub);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .track-item.done .track-name { color: var(--spotify-text); }
+
+        /* Raw log (collapsible) */
+        .log-toggle {
+            background: none;
+            border: none;
+            color: var(--spotify-text-sub);
+            font-size: 11px;
+            cursor: pointer;
+            padding: 4px 0;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .log-toggle:hover { color: var(--spotify-text); }
+
+        .log-toggle svg {
+            width: 12px;
+            height: 12px;
+            transition: transform 0.2s;
+        }
+
+        .log-toggle.expanded svg { transform: rotate(90deg); }
+
+        .log {
+            max-height: 0;
+            overflow: hidden;
             text-align: left;
             font-family: 'SF Mono', 'Fira Code', monospace;
-            font-size: 12px;
+            font-size: 11px;
             color: var(--spotify-text-sub);
             line-height: 1.6;
             scrollbar-width: thin;
             scrollbar-color: var(--spotify-border) transparent;
+            transition: max-height 0.3s ease;
+        }
+
+        .log.expanded {
+            max-height: 160px;
+            overflow-y: auto;
         }
 
         .log::-webkit-scrollbar { width: 4px; }
@@ -442,11 +666,109 @@
             margin-right: 8px;
         }
 
+        /* Download history */
+        .history-section {
+            display: none;
+            text-align: left;
+            margin-top: 20px;
+            background: var(--spotify-card);
+            border: 1px solid var(--spotify-border);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .history-section.active { display: block; }
+
+        .history-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .history-header:hover { background: var(--spotify-card-hover); }
+
+        .history-header h4 {
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .history-header svg {
+            width: 14px;
+            height: 14px;
+            transition: transform 0.2s;
+        }
+
+        .history-header.expanded svg { transform: rotate(180deg); }
+
+        .history-list {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .history-list.expanded {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .history-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 16px;
+            border-top: 1px solid var(--spotify-border);
+            font-size: 12px;
+        }
+
+        .history-item-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+            flex: 1;
+        }
+
+        .history-item-title {
+            color: var(--spotify-text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .history-item-meta {
+            color: var(--spotify-text-sub);
+            font-size: 11px;
+        }
+
+        .history-item button {
+            background: none;
+            border: 1px solid var(--spotify-border);
+            color: var(--spotify-text-sub);
+            padding: 4px 10px;
+            border-radius: 50px;
+            font-size: 11px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+
+        .history-item button:hover {
+            border-color: var(--spotify-green);
+            color: var(--spotify-green);
+        }
+
         .footer {
             margin-top: 40px;
             color: var(--spotify-text-sub);
             font-size: 11px;
             opacity: 0.5;
+            padding-bottom: 20px;
         }
 
         .error-msg {
@@ -465,7 +787,6 @@
             animation: fadeSlideIn 0.3s ease;
         }
 
-        /* Credential warning banner */
         .cred-warning {
             display: none;
             color: #F0A500;
@@ -480,9 +801,169 @@
 
         .cred-warning.active { display: block; }
         .cred-warning a { color: #F0A500; text-decoration: underline; cursor: pointer; }
+
+        /* Drag and drop overlay */
+        .drop-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(29, 185, 84, 0.08);
+            border: 3px dashed var(--spotify-green);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+
+        .drop-overlay.active {
+            display: flex;
+        }
+
+        .drop-overlay-text {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--spotify-green);
+            background: var(--spotify-card);
+            padding: 20px 40px;
+            border-radius: 16px;
+        }
+
+        /* Toast notifications */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            background: var(--spotify-card);
+            border: 1px solid var(--spotify-border);
+            border-left: 3px solid var(--spotify-green);
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 13px;
+            color: var(--spotify-text);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            animation: toastIn 0.3s ease, toastOut 0.3s ease 4.7s;
+            max-width: 300px;
+        }
+
+        .toast.error { border-left-color: #E74C3C; }
+
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateX(40px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        @keyframes toastOut {
+            from { opacity: 1; transform: translateX(0); }
+            to { opacity: 0; transform: translateX(40px); }
+        }
+
+        /* Mute toggle */
+        .mute-toggle {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--spotify-card);
+            border: 1px solid var(--spotify-border);
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            z-index: 100;
+        }
+
+        .mute-toggle:hover { border-color: var(--spotify-green); }
+
+        .mute-toggle svg {
+            width: 16px;
+            height: 16px;
+            color: var(--spotify-text-sub);
+        }
+
+        .mute-toggle.muted svg { color: #E74C3C; }
+
+        /* Mobile layout */
+        @media (max-width: 600px) {
+            body {
+                padding: 12px;
+            }
+
+            .container {
+                max-width: 100%;
+                padding-top: 20px;
+            }
+
+            .logo {
+                margin-bottom: 24px;
+            }
+
+            .logo svg {
+                width: 40px;
+                height: 40px;
+            }
+
+            .logo h1 { font-size: 22px; }
+
+            .options-row {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .option-group { min-width: unset; }
+
+            .checkbox-group { padding-top: 0; }
+
+            .go-btn {
+                padding: 16px;
+                font-size: 16px;
+            }
+
+            .settings-toggle {
+                padding: 12px;
+            }
+
+            .toast-container {
+                top: 10px;
+                right: 10px;
+                left: 10px;
+            }
+
+            .toast { max-width: unset; }
+
+            .mute-toggle {
+                bottom: 12px;
+                right: 12px;
+                width: 40px;
+                height: 40px;
+            }
+
+            .history-item button {
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+        }
     </style>
 </head>
 <body>
+    <div class="drop-overlay" id="dropOverlay">
+        <div class="drop-overlay-text">Drop Spotify URLs here</div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+
     <div class="container">
         <div class="logo">
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -492,9 +973,8 @@
                 <path d="M14.5 15.5C12.5 14.5 10.5 14.8 9 15.5" stroke="#191414" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
             <h1>Spotify <span>Downloader</span></h1>
-            <p>Paste a link, grab your tracks at 320kbps</p>
+            <p>Paste links, choose your format, grab your tracks</p>
 
-            <!-- Settings gear -->
             <button class="settings-toggle" id="settingsToggle" onclick="toggleSettings()" title="API Credentials">
                 <svg viewBox="0 0 24 24" fill="none" stroke="#B3B3B3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="3"/>
@@ -504,8 +984,48 @@
         </div>
 
         <div class="input-group">
-            <input type="text" id="urlInput" placeholder="https://open.spotify.com/..." autocomplete="off" spellcheck="false">
-            <button id="goBtn" onclick="startDownload()">Download</button>
+            <textarea id="urlInput" placeholder="Paste Spotify URLs here (one per line)..." rows="1" spellcheck="false"></textarea>
+        </div>
+
+        <div class="input-meta">
+            <span class="link-count" id="linkCount">0 links</span>
+            <span class="size-estimate" id="sizeEstimate"></span>
+        </div>
+
+        <div class="options-row">
+            <div class="option-group">
+                <label for="formatSelect">Format</label>
+                <select id="formatSelect" onchange="onFormatChange()">
+                    <option value="mp3" selected>MP3</option>
+                    <option value="flac">FLAC</option>
+                    <option value="wav">WAV</option>
+                    <option value="ogg">OGG</option>
+                </select>
+            </div>
+            <div class="option-group">
+                <label for="bitrateSelect">Bitrate</label>
+                <select id="bitrateSelect" onchange="updateSizeEstimate()">
+                    <option value="320k" selected>320 kbps</option>
+                    <option value="256k">256 kbps</option>
+                    <option value="192k">192 kbps</option>
+                    <option value="128k">128 kbps</option>
+                </select>
+            </div>
+            <div class="checkbox-group">
+                <input type="checkbox" id="structuredCheck">
+                <label for="structuredCheck">Artist/Album folders</label>
+            </div>
+        </div>
+
+        <button class="go-btn" id="goBtn" onclick="startDownload()">Download</button>
+
+        <!-- Preview card -->
+        <div class="preview-card" id="previewCard">
+            <img id="previewImg" src="" alt="">
+            <div class="preview-info">
+                <div class="preview-title" id="previewTitle"></div>
+                <div class="preview-type" id="previewType"></div>
+            </div>
         </div>
 
         <div class="hint">
@@ -536,8 +1056,7 @@
             <div class="security-info" id="securityInfo"></div>
 
             <script>
-                // Populate security info based on context
-                document.getElementById('securityInfo').innerHTML = hasSubtleCrypto
+                document.getElementById('securityInfo').innerHTML = (crypto && crypto.subtle)
                     ? '<strong>How your credentials are protected:</strong>'
                     + '<ul>'
                     + '<li>Encrypted with <strong>AES-256-GCM</strong> via the Web Crypto API before being stored in your browser\'s localStorage.</li>'
@@ -575,6 +1094,11 @@
             <div class="progress-bar-track">
                 <div class="progress-bar-fill indeterminate" id="progressBar"></div>
             </div>
+            <div class="track-list" id="trackList"></div>
+            <button class="log-toggle" id="logToggle" onclick="toggleLog()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+                Raw log
+            </button>
             <div class="log" id="log"></div>
         </div>
 
@@ -587,20 +1111,37 @@
             Download ZIP
         </button>
 
-        <div class="footer">320kbps MP3 &middot; Metadata &middot; Album Art</div>
+        <!-- Download history -->
+        <div class="history-section" id="historySection">
+            <div class="history-header" id="historyHeader" onclick="toggleHistory()">
+                <h4>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    Recent Downloads
+                </h4>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+            </div>
+            <div class="history-list" id="historyList"></div>
+        </div>
+
+        <div class="footer" id="footerText">MP3 320kbps &middot; Metadata &middot; Album Art</div>
     </div>
+
+    <!-- Mute toggle -->
+    <button class="mute-toggle" id="muteToggle" onclick="toggleMute()" title="Toggle sound">
+        <svg id="muteIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+        </svg>
+    </button>
 
     <script>
         // ===== Encrypted credential storage =====
-        // Uses AES-256-GCM (Web Crypto API) on HTTPS/localhost.
-        // Falls back to XOR obfuscation on plain HTTP (crypto.subtle unavailable).
         const STORAGE_KEY_ENC = 'sp_creds_enc';
         const STORAGE_KEY_IV  = 'sp_creds_iv';
         const STORAGE_KEY_KEY = 'sp_creds_key';
 
         const hasSubtleCrypto = !!(crypto && crypto.subtle);
 
-        // -- XOR fallback for non-secure contexts --
         function xorObfuscate(text, key) {
             return Array.from(text).map((ch, i) =>
                 String.fromCharCode(ch.charCodeAt(0) ^ key.charCodeAt(i % key.length))
@@ -618,7 +1159,6 @@
             return key;
         }
 
-        // -- AES-256-GCM (secure contexts) --
         async function getCryptoKey() {
             const stored = localStorage.getItem(STORAGE_KEY_KEY);
             if (stored) {
@@ -631,7 +1171,6 @@
             return key;
         }
 
-        // -- Unified encrypt/decrypt/clear --
         async function encryptAndStore(data) {
             const json = JSON.stringify(data);
             if (hasSubtleCrypto) {
@@ -676,6 +1215,8 @@
 
         // ===== UI Elements =====
         let currentJobId = null;
+        let totalTracks = 0;
+        let tracksDone = 0;
 
         const urlInput = document.getElementById('urlInput');
         const goBtn = document.getElementById('goBtn');
@@ -683,7 +1224,9 @@
         const statusText = document.getElementById('statusText');
         const statusIcon = document.getElementById('statusIcon');
         const progressBar = document.getElementById('progressBar');
+        const trackListEl = document.getElementById('trackList');
         const log = document.getElementById('log');
+        const logToggle = document.getElementById('logToggle');
         const downloadBtn = document.getElementById('downloadBtn');
         const errorMsg = document.getElementById('errorMsg');
         const settingsPanel = document.getElementById('settingsPanel');
@@ -692,10 +1235,128 @@
         const clientSecretInput = document.getElementById('clientSecretInput');
         const credWarning = document.getElementById('credWarning');
         const saveFlash = document.getElementById('saveFlash');
+        const formatSelect = document.getElementById('formatSelect');
+        const bitrateSelect = document.getElementById('bitrateSelect');
+        const structuredCheck = document.getElementById('structuredCheck');
+        const linkCount = document.getElementById('linkCount');
+        const sizeEstimate = document.getElementById('sizeEstimate');
+        const previewCard = document.getElementById('previewCard');
+        const previewImg = document.getElementById('previewImg');
+        const previewTitle = document.getElementById('previewTitle');
+        const previewType = document.getElementById('previewType');
+        const footerText = document.getElementById('footerText');
+        const historySection = document.getElementById('historySection');
+        const historyHeader = document.getElementById('historyHeader');
+        const historyList = document.getElementById('historyList');
+        const muteToggle = document.getElementById('muteToggle');
+        const muteIcon = document.getElementById('muteIcon');
+        const toastContainer = document.getElementById('toastContainer');
+        const dropOverlay = document.getElementById('dropOverlay');
+
+        // ===== Size estimate lookup (MB per minute of audio, approximate) =====
+        const SIZE_PER_MIN = {
+            'mp3': { '128k': 0.96, '192k': 1.44, '256k': 1.92, '320k': 2.40 },
+            'flac': { '128k': 5.0, '192k': 5.0, '256k': 5.0, '320k': 5.0 },
+            'wav':  { '128k': 10.0, '192k': 10.0, '256k': 10.0, '320k': 10.0 },
+            'ogg':  { '128k': 0.96, '192k': 1.44, '256k': 1.92, '320k': 2.40 },
+        };
+        const AVG_TRACK_MINUTES = 3.5;
+
+        function updateSizeEstimate() {
+            const fmt = formatSelect.value;
+            const br = bitrateSelect.value;
+            const perMin = SIZE_PER_MIN[fmt]?.[br] || 2.4;
+            const perTrack = (perMin * AVG_TRACK_MINUTES).toFixed(1);
+            sizeEstimate.textContent = `~${perTrack} MB/track`;
+        }
+
+        function onFormatChange() {
+            const fmt = formatSelect.value;
+            const isLossless = (fmt === 'flac' || fmt === 'wav');
+            bitrateSelect.disabled = isLossless;
+            if (isLossless) {
+                bitrateSelect.value = '320k';
+                // Show "Lossless" overlay
+                bitrateSelect.options[0].text = 'Lossless';
+            } else {
+                bitrateSelect.options[0].text = '320 kbps';
+            }
+            updateSizeEstimate();
+            updateFooter();
+        }
+
+        function updateFooter() {
+            const fmt = formatSelect.value.toUpperCase();
+            const br = bitrateSelect.disabled ? 'Lossless' : bitrateSelect.value.replace('k', ' kbps');
+            footerText.textContent = `${fmt} ${br} \u00B7 Metadata \u00B7 Album Art`;
+        }
+
+        // ===== Textarea auto-grow + link counter =====
+        function getUrls() {
+            return urlInput.value.split('\n')
+                .map(s => s.trim())
+                .filter(s => s.length > 0 && s.includes('open.spotify.com'));
+        }
+
+        function updateLinkCount() {
+            const urls = getUrls();
+            const count = urls.length;
+            linkCount.innerHTML = count === 0
+                ? '0 links'
+                : `<strong>${count}</strong> link${count !== 1 ? 's' : ''}`;
+        }
+
+        urlInput.addEventListener('input', () => {
+            // Auto-grow
+            urlInput.style.height = 'auto';
+            urlInput.style.height = Math.min(urlInput.scrollHeight, 200) + 'px';
+            updateLinkCount();
+        });
+
+        // ===== Preview (debounced) =====
+        let previewTimeout = null;
+        let lastPreviewUrl = '';
+
+        function triggerPreview() {
+            const urls = getUrls();
+            const firstUrl = urls[0] || '';
+            if (firstUrl === lastPreviewUrl) return;
+            lastPreviewUrl = firstUrl;
+
+            clearTimeout(previewTimeout);
+            if (!firstUrl) {
+                previewCard.classList.remove('active');
+                return;
+            }
+
+            previewTimeout = setTimeout(async () => {
+                try {
+                    const res = await fetch('/api/preview', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: firstUrl }),
+                    });
+                    if (!res.ok) { previewCard.classList.remove('active'); return; }
+                    const data = await res.json();
+                    if (data.thumbnail_url) {
+                        previewImg.src = data.thumbnail_url;
+                        previewTitle.textContent = data.title;
+                        previewType.textContent = data.type;
+                        previewCard.classList.add('active');
+                    } else {
+                        previewCard.classList.remove('active');
+                    }
+                } catch {
+                    previewCard.classList.remove('active');
+                }
+            }, 600);
+        }
+
+        urlInput.addEventListener('paste', () => setTimeout(triggerPreview, 100));
+        urlInput.addEventListener('blur', triggerPreview);
 
         // ===== Init =====
         (async function init() {
-            // Load saved credentials into the settings fields
             const creds = await decryptStored();
             if (creds && creds.client_id) {
                 clientIdInput.value = creds.client_id;
@@ -703,16 +1364,26 @@
                 settingsToggle.classList.add('has-creds');
             }
 
-            // Check server-side status and show warning if neither source has creds
             fetch('/api/status').then(r => r.json()).then(data => {
                 if (!data.server_credentials && !(creds && creds.client_id)) {
                     credWarning.classList.add('active');
                 }
             }).catch(() => {});
+
+            updateSizeEstimate();
+            renderHistory();
+            loadMuteState();
         })();
 
+        // Enter key with single line submits, Shift+Enter always newlines
         urlInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') startDownload();
+            if (e.key === 'Enter' && !e.shiftKey) {
+                const lines = urlInput.value.split('\n').filter(s => s.trim());
+                if (lines.length <= 1) {
+                    e.preventDefault();
+                    startDownload();
+                }
+            }
         });
 
         // ===== Settings =====
@@ -739,7 +1410,6 @@
             clientIdInput.value = '';
             clientSecretInput.value = '';
             settingsToggle.classList.remove('has-creds');
-            // Re-check if server has creds
             fetch('/api/status').then(r => r.json()).then(data => {
                 if (!data.server_credentials) credWarning.classList.add('active');
             }).catch(() => {});
@@ -760,8 +1430,16 @@
             log.scrollTop = log.scrollHeight;
         }
 
+        function toggleLog() {
+            logToggle.classList.toggle('expanded');
+            log.classList.toggle('expanded');
+        }
+
         function resetUI() {
             log.innerHTML = '';
+            log.classList.remove('expanded');
+            logToggle.classList.remove('expanded');
+            trackListEl.innerHTML = '';
             downloadBtn.classList.remove('active');
             errorMsg.classList.remove('active');
             progressBar.className = 'progress-bar-fill indeterminate';
@@ -769,12 +1447,14 @@
             statusIcon.classList.add('spinning');
             statusIcon.innerHTML = '<path d="M12 2a10 10 0 0 1 10 10"/>';
             statusText.textContent = 'Downloading...';
+            totalTracks = 0;
+            tracksDone = 0;
         }
 
         async function startDownload() {
-            const url = urlInput.value.trim();
-            if (!url) {
-                showError('Please paste a Spotify link.');
+            const urls = getUrls();
+            if (urls.length === 0) {
+                showError('Please paste at least one Spotify link.');
                 return;
             }
 
@@ -783,9 +1463,13 @@
             statusArea.classList.add('active');
 
             try {
-                // Get credentials (browser-stored takes priority)
                 const creds = await decryptStored();
-                const body = { url };
+                const body = {
+                    urls: urls,
+                    format: formatSelect.value,
+                    bitrate: bitrateSelect.value,
+                    structured: structuredCheck.checked,
+                };
                 if (creds && creds.client_id && creds.client_secret) {
                     body.client_id = creds.client_id;
                     body.client_secret = creds.client_secret;
@@ -802,10 +1486,15 @@
                     throw new Error(data.detail || 'Invalid request');
                 }
 
-                const { job_id, url: validatedUrl } = await res.json();
+                const { job_id } = await res.json();
                 currentJobId = job_id;
 
-                const evtSource = new EventSource(`/api/progress/${job_id}?url=${encodeURIComponent(validatedUrl)}`);
+                // Request notification permission on first download
+                if ('Notification' in window && Notification.permission === 'default') {
+                    Notification.requestPermission();
+                }
+
+                const evtSource = new EventSource(`/api/progress/${job_id}`);
 
                 evtSource.onmessage = (e) => {
                     const msg = e.data;
@@ -815,12 +1504,16 @@
                         const info = msg.replace('DONE:', '');
                         statusIcon.classList.remove('spinning');
                         statusIcon.innerHTML = '<circle cx="12" cy="12" r="10" fill="none" stroke="#1DB954" stroke-width="2"/><path d="M8 12l3 3 5-5" stroke="#1DB954" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
-                        statusText.textContent = `Done — ${info}`;
+                        statusText.textContent = `Done \u2014 ${info}`;
                         progressBar.classList.remove('indeterminate');
                         progressBar.style.width = '100%';
                         downloadBtn.classList.add('active');
                         goBtn.disabled = false;
                         addLog(`Completed: ${info}`, 'success');
+                        showToast(`Download complete: ${info}`);
+                        playChime();
+                        sendBrowserNotification(`Download complete: ${info}`);
+                        addToHistory(urls, formatSelect.value, info);
                     } else if (msg.startsWith('ERROR:')) {
                         evtSource.close();
                         const errText = msg.replace('ERROR:', '').trim();
@@ -830,7 +1523,26 @@
                         progressBar.classList.remove('indeterminate');
                         progressBar.style.width = '0%';
                         addLog(errText, 'error');
+                        showToast(errText, true);
                         goBtn.disabled = false;
+                    } else if (msg.startsWith('TOTAL:')) {
+                        totalTracks = parseInt(msg.replace('TOTAL:', ''), 10) || 0;
+                        statusText.textContent = `Downloading ${totalTracks} track${totalTracks !== 1 ? 's' : ''}...`;
+                    } else if (msg.startsWith('TRACK_START:')) {
+                        const detail = msg.replace('TRACK_START:', '').trim();
+                        addTrackItem(detail, 'downloading');
+                    } else if (msg.startsWith('TRACK_DONE:')) {
+                        const detail = msg.replace('TRACK_DONE:', '').trim();
+                        tracksDone++;
+                        markLastTrackDone();
+                        if (totalTracks > 0) {
+                            const pct = Math.round((tracksDone / totalTracks) * 100);
+                            progressBar.classList.remove('indeterminate');
+                            progressBar.style.width = pct + '%';
+                            statusText.textContent = `Downloading... ${tracksDone}/${totalTracks}`;
+                        }
+                    } else if (msg.startsWith('LOG:')) {
+                        addLog(msg.replace('LOG:', ''));
                     } else {
                         addLog(msg);
                     }
@@ -848,9 +1560,231 @@
             }
         }
 
+        // ===== Track list management =====
+        function addTrackItem(name, status) {
+            // If there's already a 'downloading' item, mark it done
+            const items = trackListEl.querySelectorAll('.track-item');
+            items.forEach(item => {
+                const icon = item.querySelector('.track-icon');
+                if (icon && icon.classList.contains('downloading')) {
+                    icon.classList.remove('downloading');
+                    icon.classList.add('done');
+                    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>';
+                    item.classList.add('done');
+                }
+            });
+
+            const el = document.createElement('div');
+            el.className = 'track-item';
+            el.innerHTML = `
+                <span class="track-icon ${status}">
+                    ${status === 'downloading'
+                        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 2a10 10 0 0 1 10 10"/></svg>'
+                        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>'}
+                </span>
+                <span class="track-name">${escapeHtml(name)}</span>
+            `;
+            trackListEl.appendChild(el);
+            trackListEl.scrollTop = trackListEl.scrollHeight;
+        }
+
+        function markLastTrackDone() {
+            const items = trackListEl.querySelectorAll('.track-item');
+            items.forEach(item => {
+                const icon = item.querySelector('.track-icon');
+                if (icon && icon.classList.contains('downloading')) {
+                    icon.classList.remove('downloading');
+                    icon.classList.add('done');
+                    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>';
+                    item.classList.add('done');
+                }
+            });
+        }
+
+        function escapeHtml(text) {
+            const d = document.createElement('div');
+            d.textContent = text;
+            return d.innerHTML;
+        }
+
         function downloadZip() {
             if (!currentJobId) return;
             window.location.href = `/api/zip/${currentJobId}`;
+        }
+
+        // ===== Drag and drop =====
+        let dragCounter = 0;
+
+        document.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            dragCounter++;
+            dropOverlay.classList.add('active');
+        });
+
+        document.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dragCounter--;
+            if (dragCounter <= 0) {
+                dragCounter = 0;
+                dropOverlay.classList.remove('active');
+            }
+        });
+
+        document.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+
+        document.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dragCounter = 0;
+            dropOverlay.classList.remove('active');
+
+            const text = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text/uri-list') || '';
+            if (text && text.includes('spotify.com')) {
+                const lines = text.split(/[\n\r]+/).filter(s => s.trim());
+                const existing = urlInput.value.trim();
+                urlInput.value = existing ? existing + '\n' + lines.join('\n') : lines.join('\n');
+                urlInput.dispatchEvent(new Event('input'));
+                triggerPreview();
+            }
+        });
+
+        // ===== Download history (sessionStorage) =====
+        function getHistory() {
+            try {
+                return JSON.parse(sessionStorage.getItem('dl_history') || '[]');
+            } catch { return []; }
+        }
+
+        function saveHistory(history) {
+            sessionStorage.setItem('dl_history', JSON.stringify(history.slice(0, 20)));
+        }
+
+        function addToHistory(urls, format, info) {
+            const history = getHistory();
+            history.unshift({
+                urls: urls,
+                format: format,
+                info: info,
+                time: new Date().toLocaleTimeString(),
+            });
+            saveHistory(history);
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const history = getHistory();
+            if (history.length === 0) {
+                historySection.classList.remove('active');
+                return;
+            }
+            historySection.classList.add('active');
+            historyList.innerHTML = history.map((item, i) => `
+                <div class="history-item">
+                    <div class="history-item-info">
+                        <div class="history-item-title">${escapeHtml(item.info || item.urls[0] || 'Download')}</div>
+                        <div class="history-item-meta">${escapeHtml(item.format.toUpperCase())} &middot; ${escapeHtml(item.time)}</div>
+                    </div>
+                    <button onclick="redownload(${i})">Download Again</button>
+                </div>
+            `).join('');
+        }
+
+        function toggleHistory() {
+            historyHeader.classList.toggle('expanded');
+            historyList.classList.toggle('expanded');
+        }
+
+        function redownload(index) {
+            const history = getHistory();
+            const item = history[index];
+            if (!item) return;
+            urlInput.value = item.urls.join('\n');
+            urlInput.dispatchEvent(new Event('input'));
+            formatSelect.value = item.format || 'mp3';
+            onFormatChange();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // ===== Toast notifications =====
+        function showToast(message, isError = false) {
+            const toast = document.createElement('div');
+            toast.className = 'toast' + (isError ? ' error' : '');
+            toast.textContent = message;
+            toastContainer.appendChild(toast);
+            setTimeout(() => {
+                if (toast.parentNode) toast.parentNode.removeChild(toast);
+            }, 5000);
+        }
+
+        // ===== Browser notifications =====
+        function sendBrowserNotification(message) {
+            if (!('Notification' in window)) return;
+            if (Notification.permission !== 'granted') return;
+            if (document.hasFocus()) return; // Only when tab is in background
+            new Notification('Spotify Downloader', {
+                body: message,
+                icon: '/static/favicon.png',
+            });
+        }
+
+        // ===== Sound effect (Web Audio API) =====
+        let isMuted = false;
+
+        function loadMuteState() {
+            isMuted = localStorage.getItem('sp_muted') === 'true';
+            updateMuteIcon();
+        }
+
+        function toggleMute() {
+            isMuted = !isMuted;
+            localStorage.setItem('sp_muted', isMuted);
+            updateMuteIcon();
+        }
+
+        function updateMuteIcon() {
+            if (isMuted) {
+                muteToggle.classList.add('muted');
+                muteIcon.innerHTML = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>';
+            } else {
+                muteToggle.classList.remove('muted');
+                muteIcon.innerHTML = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>';
+            }
+        }
+
+        function playChime() {
+            if (isMuted) return;
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+                // First tone
+                const osc1 = ctx.createOscillator();
+                const gain1 = ctx.createGain();
+                osc1.type = 'sine';
+                osc1.frequency.value = 587.33; // D5
+                gain1.gain.setValueAtTime(0.15, ctx.currentTime);
+                gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+                osc1.connect(gain1);
+                gain1.connect(ctx.destination);
+                osc1.start(ctx.currentTime);
+                osc1.stop(ctx.currentTime + 0.3);
+
+                // Second tone (higher, slight delay)
+                const osc2 = ctx.createOscillator();
+                const gain2 = ctx.createGain();
+                osc2.type = 'sine';
+                osc2.frequency.value = 880; // A5
+                gain2.gain.setValueAtTime(0.15, ctx.currentTime + 0.15);
+                gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+                osc2.connect(gain2);
+                gain2.connect(ctx.destination);
+                osc2.start(ctx.currentTime + 0.15);
+                osc2.stop(ctx.currentTime + 0.5);
+
+                setTimeout(() => ctx.close(), 1000);
+            } catch {
+                // Web Audio not available
+            }
         }
     </script>
 </body>

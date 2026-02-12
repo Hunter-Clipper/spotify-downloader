@@ -4,7 +4,7 @@
 
 # Spotify Downloader
 
-### Grab your favorite tracks, albums & playlists at **320kbps**
+### Grab your favorite tracks, albums & playlists in **MP3, FLAC, WAV, or OGG**
 
 [![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/pbdweller/spotify-downloader)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
@@ -13,14 +13,15 @@
 
 <br>
 
-<img src="https://img.shields.io/badge/MP3-320kbps-1DB954?style=flat-square" alt="320kbps">
+<img src="https://img.shields.io/badge/MP3%20%7C%20FLAC%20%7C%20WAV%20%7C%20OGG-1DB954?style=flat-square" alt="Formats">
+<img src="https://img.shields.io/badge/Batch_Downloads-1DB954?style=flat-square" alt="Batch">
 <img src="https://img.shields.io/badge/Metadata-Included-1DB954?style=flat-square" alt="Metadata">
 <img src="https://img.shields.io/badge/Album_Art-Embedded-1DB954?style=flat-square" alt="Album Art">
 <img src="https://img.shields.io/badge/Lyrics-Synced-1DB954?style=flat-square" alt="Lyrics">
 
 <br><br>
 
-**Paste a Spotify link. Get a ZIP. That's it.**
+**Paste your Spotify links. Pick your format. Get a ZIP. That's it.**
 
 <br>
 
@@ -31,12 +32,13 @@
 ## How It Works
 
 ```
-Spotify Link  -->  spotdl (YouTube match)  -->  320kbps MP3  -->  ZIP  -->  Your Browser
+Spotify Links  -->  spotdl (YouTube match)  -->  MP3/FLAC/WAV/OGG  -->  ZIP  -->  Your Browser
 ```
 
-1. Paste any Spotify **track**, **album**, or **playlist** URL
-2. Watch real-time download progress via Server-Sent Events
-3. Click download — get a timestamped ZIP with all your tracks
+1. Paste any Spotify **track**, **album**, or **playlist** URLs (one per line for batch)
+2. Choose your **format** (MP3, FLAC, WAV, OGG) and **bitrate** (128k–320k)
+3. Watch real-time per-track progress via Server-Sent Events
+4. Click download — get a timestamped ZIP with all your tracks
 
 <br>
 
@@ -101,7 +103,10 @@ docker compose up -d
 
 ### Downloads
 - Tracks, albums & playlists
-- **320kbps** MP3 format
+- **Batch downloads** — multiple URLs at once
+- **MP3, FLAC, WAV, OGG** format selection
+- Configurable bitrate (128k–320k)
+- Organize by **Artist/Album** folders
 - Full metadata & album art
 - Synced lyrics when available
 - Smart ZIP naming with timestamps
@@ -121,16 +126,24 @@ docker compose up -d
 <tr>
 <td>
 
-### Performance
-- Real-time SSE progress streaming
-- Multi-threaded downloads (4 threads)
-- Auto-purge after 30 minutes
-- Max 5 concurrent downloads
+### UX
+- **Album art preview** on paste (Spotify oEmbed)
+- **Per-track progress** with determinate progress bar
+- **Drag & drop** Spotify URLs onto the page
+- **Session download history** with "Download Again"
+- **Toast notifications** + browser notifications (background tab)
+- **Completion chime** (Web Audio API, mute toggle)
+- **Mobile-responsive** layout with `prefers-reduced-motion` support
+- Static **size estimate** per track based on format + bitrate
 
 </td>
 <td>
 
-### Protection
+### Performance & Protection
+- Real-time SSE progress streaming
+- Multi-threaded downloads (4 threads)
+- Auto-purge after 30 minutes
+- Max 5 concurrent downloads
 - Per-IP rate limiting (10 req/min)
 - Concurrent job cap
 - Input validation & sanitization
@@ -149,9 +162,12 @@ docker compose up -d
 │  Browser                                        │
 │  ┌───────────────────────────────────────────┐  │
 │  │  Spotify-themed Web UI                    │  │
+│  │  - Multi-URL batch input                  │  │
+│  │  - Format/bitrate selection               │  │
+│  │  - Album art preview (oEmbed)             │  │
+│  │  - Per-track SSE progress                 │  │
+│  │  - Drag & drop, toasts, sound FX          │  │
 │  │  - AES-256-GCM encrypted localStorage     │  │
-│  │  - SSE real-time progress                 │  │
-│  │  - One-click ZIP download                 │  │
 │  └──────────────────┬────────────────────────┘  │
 └─────────────────────┼───────────────────────────┘
                       │ HTTPS / HTTP
@@ -159,12 +175,13 @@ docker compose up -d
 │  Docker Container   │              (port 80)    │
 │  ┌──────────────────┴────────────────────────┐  │
 │  │  FastAPI Backend                          │  │
-│  │  - Rate limiter    - Job manager          │  │
-│  │  - Auto-purge      - ZIP builder          │  │
+│  │  - Job dataclass   - Multi-URL support    │  │
+│  │  - Rate limiter    - Format/bitrate opts  │  │
+│  │  - Auto-purge      - Preview (oEmbed)     │  │
 │  ├───────────────────────────────────────────┤  │
 │  │  spotdl + yt-dlp + ffmpeg                 │  │
-│  │  - YouTube matching  - 320kbps encoding   │  │
-│  │  - Metadata embed    - Album art          │  │
+│  │  - YouTube matching  - Multi-format enc   │  │
+│  │  - Metadata embed    - Album art & lyrics │  │
 │  └───────────────────────────────────────────┘  │
 │                                                 │
 │  User: appuser (non-root)                       │
@@ -226,6 +243,22 @@ cap_drop: [ALL]                       # All capabilities dropped
 cap_add: [NET_BIND_SERVICE]           # Only what's needed
 tmpfs: [/tmp:noexec,size=2G]          # Ephemeral, non-executable temp
 ```
+
+<br>
+
+## Roadmap
+
+> Possible future features — no guarantees, no timelines. Ideas from various user personas.
+
+| Category | Feature Idea |
+|----------|-------------|
+| **DJ / Producer** | BPM & key detection, cue point export, waveform preview, stems separation |
+| **Privacy** | Tor/proxy support, no-analytics mode, ephemeral mode (auto-delete on download) |
+| **Sysadmin** | Prometheus metrics endpoint, admin dashboard, configurable quotas per user, LDAP/SSO auth |
+| **Power User** | CLI mode (API-only, no UI), custom output templates, ffmpeg post-processing hooks, queue priority |
+| **Sharer** | Shareable download links (time-limited), collaborative playlists, QR code for mobile download |
+| **Accessibility** | Full keyboard navigation, screen reader ARIA labels, high contrast theme |
+| **Integration** | Webhook on completion, Telegram/Discord bot, Plex/Jellyfin auto-import |
 
 <br>
 
