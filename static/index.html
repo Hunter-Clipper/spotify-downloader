@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spotify Downloader</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --spotify-green: #1DB954;
+            --spotify-green-hover: #1ed760;
+            --spotify-dark: #191414;
+            --spotify-darker: #121212;
+            --spotify-card: #181818;
+            --spotify-card-hover: #282828;
+            --spotify-text: #FFFFFF;
+            --spotify-text-sub: #B3B3B3;
+            --spotify-border: #333333;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+            background: var(--spotify-darker);
+            color: var(--spotify-text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(ellipse at 20% 50%, rgba(29, 185, 84, 0.08) 0%, transparent 50%),
+                        radial-gradient(ellipse at 80% 50%, rgba(29, 185, 84, 0.05) 0%, transparent 50%);
+            animation: bgShift 15s ease-in-out infinite alternate;
+            z-index: -1;
+        }
+
+        @keyframes bgShift {
+            0% { transform: translate(0, 0) rotate(0deg); }
+            100% { transform: translate(-5%, 5%) rotate(3deg); }
+        }
+
+        .container {
+            width: 100%;
+            max-width: 560px;
+            text-align: center;
+        }
+
+        /* Logo */
+        .logo {
+            margin-bottom: 40px;
+            position: relative;
+        }
+
+        .logo svg {
+            width: 52px;
+            height: 52px;
+            margin-bottom: 16px;
+            filter: drop-shadow(0 0 20px rgba(29, 185, 84, 0.3));
+        }
+
+        .logo h1 {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .logo h1 span { color: var(--spotify-green); }
+
+        .logo p {
+            color: var(--spotify-text-sub);
+            font-size: 14px;
+            margin-top: 6px;
+        }
+
+        /* Settings gear - top right of container */
+        .settings-toggle {
+            position: absolute;
+            top: 0;
+            right: 0;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 50%;
+            transition: background 0.2s;
+        }
+
+        .settings-toggle:hover { background: var(--spotify-card-hover); }
+
+        .settings-toggle svg {
+            width: 22px;
+            height: 22px;
+            filter: none;
+            margin: 0;
+        }
+
+        .settings-toggle.has-creds svg { stroke: var(--spotify-green); }
+
+        /* Input area */
+        .input-group {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 16px 20px;
+            padding-right: 130px;
+            background: var(--spotify-card);
+            border: 1px solid var(--spotify-border);
+            border-radius: 50px;
+            color: var(--spotify-text);
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .input-group input::placeholder { color: var(--spotify-text-sub); }
+
+        .input-group input:focus {
+            border-color: var(--spotify-green);
+            box-shadow: 0 0 0 3px rgba(29, 185, 84, 0.15);
+        }
+
+        .input-group button {
+            position: absolute;
+            right: 5px;
+            top: 50%;
+            transform: translateY(-50%);
+            padding: 10px 24px;
+            background: var(--spotify-green);
+            color: var(--spotify-dark);
+            border: none;
+            border-radius: 50px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            letter-spacing: 0.3px;
+        }
+
+        .input-group button:hover:not(:disabled) {
+            background: var(--spotify-green-hover);
+            transform: translateY(-50%) scale(1.03);
+        }
+
+        .input-group button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .hint {
+            color: var(--spotify-text-sub);
+            font-size: 12px;
+            margin-bottom: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+        }
+
+        .hint span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .hint .dot {
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: var(--spotify-green);
+            display: inline-block;
+        }
+
+        /* Settings panel */
+        .settings-panel {
+            display: none;
+            background: var(--spotify-card);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            border: 1px solid var(--spotify-border);
+            text-align: left;
+        }
+
+        .settings-panel.active {
+            display: block;
+            animation: fadeSlideIn 0.3s ease;
+        }
+
+        .settings-panel h3 {
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .settings-panel h3 svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .settings-panel label {
+            display: block;
+            font-size: 12px;
+            color: var(--spotify-text-sub);
+            margin-bottom: 6px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .settings-panel input {
+            width: 100%;
+            padding: 10px 14px;
+            background: var(--spotify-darker);
+            border: 1px solid var(--spotify-border);
+            border-radius: 8px;
+            color: var(--spotify-text);
+            font-size: 13px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            outline: none;
+            margin-bottom: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .settings-panel input:focus {
+            border-color: var(--spotify-green);
+        }
+
+        .settings-panel input::placeholder { color: #555; }
+
+        .settings-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 4px;
+            margin-bottom: 16px;
+        }
+
+        .settings-actions button {
+            padding: 8px 18px;
+            border-radius: 50px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+
+        .btn-save {
+            background: var(--spotify-green);
+            color: var(--spotify-dark);
+        }
+
+        .btn-save:hover { background: var(--spotify-green-hover); }
+
+        .btn-clear {
+            background: transparent;
+            color: #E74C3C;
+            border: 1px solid rgba(231, 76, 60, 0.3) !important;
+        }
+
+        .btn-clear:hover { background: rgba(231, 76, 60, 0.1); }
+
+        /* Security info box */
+        .security-info {
+            background: rgba(29, 185, 84, 0.06);
+            border: 1px solid rgba(29, 185, 84, 0.15);
+            border-radius: 10px;
+            padding: 12px 14px;
+            font-size: 11px;
+            color: var(--spotify-text-sub);
+            line-height: 1.6;
+        }
+
+        .security-info strong { color: var(--spotify-text); }
+
+        .security-info ul {
+            margin: 6px 0 0 16px;
+            padding: 0;
+        }
+
+        .security-info a {
+            color: var(--spotify-green);
+            text-decoration: none;
+        }
+
+        .security-info a:hover { text-decoration: underline; }
+
+        /* Saved indicator */
+        .save-flash {
+            color: var(--spotify-green);
+            font-size: 12px;
+            font-weight: 600;
+            opacity: 0;
+            transition: opacity 0.3s;
+            margin-left: 8px;
+        }
+
+        .save-flash.show { opacity: 1; }
+
+        /* Status / Progress */
+        .status-area {
+            display: none;
+            background: var(--spotify-card);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            border: 1px solid var(--spotify-border);
+        }
+
+        .status-area.active {
+            display: block;
+            animation: fadeSlideIn 0.3s ease;
+        }
+
+        @keyframes fadeSlideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .status-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .status-icon {
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+        }
+
+        .status-icon.spinning {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .status-text {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .progress-bar-track {
+            width: 100%;
+            height: 4px;
+            background: var(--spotify-border);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            width: 0%;
+            background: var(--spotify-green);
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+
+        .progress-bar-fill.indeterminate {
+            width: 30%;
+            animation: indeterminate 1.5s ease-in-out infinite;
+        }
+
+        @keyframes indeterminate {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(400%); }
+        }
+
+        .log {
+            max-height: 160px;
+            overflow-y: auto;
+            text-align: left;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 12px;
+            color: var(--spotify-text-sub);
+            line-height: 1.6;
+            scrollbar-width: thin;
+            scrollbar-color: var(--spotify-border) transparent;
+        }
+
+        .log::-webkit-scrollbar { width: 4px; }
+        .log::-webkit-scrollbar-thumb { background: var(--spotify-border); border-radius: 2px; }
+
+        .log .line { padding: 1px 0; word-break: break-all; }
+        .log .line.error { color: #E74C3C; }
+        .log .line.success { color: var(--spotify-green); }
+
+        /* Download button */
+        .download-btn {
+            display: none;
+            width: 100%;
+            padding: 16px;
+            background: var(--spotify-green);
+            color: var(--spotify-dark);
+            border: none;
+            border-radius: 50px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            letter-spacing: 0.3px;
+        }
+
+        .download-btn.active {
+            display: block;
+            animation: fadeSlideIn 0.3s ease;
+        }
+
+        .download-btn:hover {
+            background: var(--spotify-green-hover);
+            transform: scale(1.02);
+        }
+
+        .download-btn svg {
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+
+        .footer {
+            margin-top: 40px;
+            color: var(--spotify-text-sub);
+            font-size: 11px;
+            opacity: 0.5;
+        }
+
+        .error-msg {
+            display: none;
+            color: #E74C3C;
+            font-size: 13px;
+            margin-bottom: 16px;
+            padding: 12px 16px;
+            background: rgba(231, 76, 60, 0.1);
+            border: 1px solid rgba(231, 76, 60, 0.2);
+            border-radius: 12px;
+        }
+
+        .error-msg.active {
+            display: block;
+            animation: fadeSlideIn 0.3s ease;
+        }
+
+        /* Credential warning banner */
+        .cred-warning {
+            display: none;
+            color: #F0A500;
+            font-size: 12px;
+            margin-bottom: 20px;
+            padding: 10px 14px;
+            background: rgba(240, 165, 0, 0.1);
+            border: 1px solid rgba(240, 165, 0, 0.2);
+            border-radius: 12px;
+            line-height: 1.5;
+        }
+
+        .cred-warning.active { display: block; }
+        .cred-warning a { color: #F0A500; text-decoration: underline; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="12" fill="#1DB954"/>
+                <path d="M16.5 10.5C13.5 9 9.5 9.5 7 10.5" stroke="#191414" stroke-width="1.5" stroke-linecap="round"/>
+                <path d="M15.5 13C13 11.8 10 12.2 8 13" stroke="#191414" stroke-width="1.5" stroke-linecap="round"/>
+                <path d="M14.5 15.5C12.5 14.5 10.5 14.8 9 15.5" stroke="#191414" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <h1>Spotify <span>Downloader</span></h1>
+            <p>Paste a link, grab your tracks at 320kbps</p>
+
+            <!-- Settings gear -->
+            <button class="settings-toggle" id="settingsToggle" onclick="toggleSettings()" title="API Credentials">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#B3B3B3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+            </button>
+        </div>
+
+        <div class="input-group">
+            <input type="text" id="urlInput" placeholder="https://open.spotify.com/..." autocomplete="off" spellcheck="false">
+            <button id="goBtn" onclick="startDownload()">Download</button>
+        </div>
+
+        <div class="hint">
+            <span><span class="dot"></span> Tracks</span>
+            <span><span class="dot"></span> Albums</span>
+            <span><span class="dot"></span> Playlists</span>
+        </div>
+
+        <!-- Settings panel -->
+        <div class="settings-panel" id="settingsPanel">
+            <h3>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                Spotify API Credentials
+                <span class="save-flash" id="saveFlash">Saved</span>
+            </h3>
+
+            <label for="clientIdInput">Client ID</label>
+            <input type="text" id="clientIdInput" placeholder="e.g. 1a2b3c4d5e6f..." autocomplete="off" spellcheck="false">
+
+            <label for="clientSecretInput">Client Secret</label>
+            <input type="password" id="clientSecretInput" placeholder="e.g. 9z8y7x6w5v4u..." autocomplete="off" spellcheck="false">
+
+            <div class="settings-actions">
+                <button class="btn-save" onclick="saveCredentials()">Save</button>
+                <button class="btn-clear" onclick="clearCredentials()">Clear</button>
+            </div>
+
+            <div class="security-info" id="securityInfo"></div>
+
+            <script>
+                // Populate security info based on context
+                document.getElementById('securityInfo').innerHTML = hasSubtleCrypto
+                    ? '<strong>How your credentials are protected:</strong>'
+                    + '<ul>'
+                    + '<li>Encrypted with <strong>AES-256-GCM</strong> via the Web Crypto API before being stored in your browser\'s localStorage.</li>'
+                    + '<li>Credentials are <strong>never stored on the server</strong> \u2014 sent per-request and discarded from memory immediately after use.</li>'
+                    + '<li>The encryption key is auto-generated and unique to this browser.</li>'
+                    + '<li>Restarting the container does <strong>not</strong> affect your saved credentials (they live in your browser). Clearing browser data will remove them.</li>'
+                    + '</ul><br>'
+                    + '<a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Get free credentials from Spotify Developer Dashboard</a>'
+                    : '<strong>Security notice (HTTP mode):</strong>'
+                    + '<ul>'
+                    + '<li>Full AES-256 encryption requires <strong>HTTPS</strong>. Over plain HTTP, credentials are obfuscated (not plaintext) but not fully encrypted.</li>'
+                    + '<li>For full encryption, access this app via <strong>https://</strong> or <strong>localhost</strong>.</li>'
+                    + '<li>Credentials are <strong>never stored on the server</strong> \u2014 sent per-request and discarded from memory immediately after use.</li>'
+                    + '<li>Restarting the container does <strong>not</strong> affect your saved credentials (they live in your browser). Clearing browser data will remove them.</li>'
+                    + '</ul><br>'
+                    + '<a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Get free credentials from Spotify Developer Dashboard</a>';
+            </script>
+        </div>
+
+        <div class="cred-warning" id="credWarning">
+            No Spotify API credentials found — downloads may be rate-limited.
+            <a onclick="toggleSettings()">Open settings</a> to add your own, or set env vars on the container.
+            <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Get free credentials</a>.
+        </div>
+
+        <div class="error-msg" id="errorMsg"></div>
+
+        <div class="status-area" id="statusArea">
+            <div class="status-header">
+                <svg class="status-icon spinning" id="statusIcon" viewBox="0 0 24 24" fill="none" stroke="#1DB954" stroke-width="2.5" stroke-linecap="round">
+                    <path d="M12 2a10 10 0 0 1 10 10"/>
+                </svg>
+                <span class="status-text" id="statusText">Downloading...</span>
+            </div>
+            <div class="progress-bar-track">
+                <div class="progress-bar-fill indeterminate" id="progressBar"></div>
+            </div>
+            <div class="log" id="log"></div>
+        </div>
+
+        <button class="download-btn" id="downloadBtn" onclick="downloadZip()">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Download ZIP
+        </button>
+
+        <div class="footer">320kbps MP3 &middot; Metadata &middot; Album Art</div>
+    </div>
+
+    <script>
+        // ===== Encrypted credential storage =====
+        // Uses AES-256-GCM (Web Crypto API) on HTTPS/localhost.
+        // Falls back to XOR obfuscation on plain HTTP (crypto.subtle unavailable).
+        const STORAGE_KEY_ENC = 'sp_creds_enc';
+        const STORAGE_KEY_IV  = 'sp_creds_iv';
+        const STORAGE_KEY_KEY = 'sp_creds_key';
+
+        const hasSubtleCrypto = !!(crypto && crypto.subtle);
+
+        // -- XOR fallback for non-secure contexts --
+        function xorObfuscate(text, key) {
+            return Array.from(text).map((ch, i) =>
+                String.fromCharCode(ch.charCodeAt(0) ^ key.charCodeAt(i % key.length))
+            ).join('');
+        }
+
+        function getOrCreateFallbackKey() {
+            let key = localStorage.getItem(STORAGE_KEY_KEY);
+            if (!key) {
+                const arr = new Uint8Array(32);
+                crypto.getRandomValues(arr);
+                key = btoa(String.fromCharCode(...arr));
+                localStorage.setItem(STORAGE_KEY_KEY, key);
+            }
+            return key;
+        }
+
+        // -- AES-256-GCM (secure contexts) --
+        async function getCryptoKey() {
+            const stored = localStorage.getItem(STORAGE_KEY_KEY);
+            if (stored) {
+                const raw = Uint8Array.from(atob(stored), c => c.charCodeAt(0));
+                return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
+            }
+            const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+            const exported = await crypto.subtle.exportKey('raw', key);
+            localStorage.setItem(STORAGE_KEY_KEY, btoa(String.fromCharCode(...new Uint8Array(exported))));
+            return key;
+        }
+
+        // -- Unified encrypt/decrypt/clear --
+        async function encryptAndStore(data) {
+            const json = JSON.stringify(data);
+            if (hasSubtleCrypto) {
+                const key = await getCryptoKey();
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const encoded = new TextEncoder().encode(json);
+                const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+                localStorage.setItem(STORAGE_KEY_ENC, btoa(String.fromCharCode(...new Uint8Array(encrypted))));
+                localStorage.setItem(STORAGE_KEY_IV, btoa(String.fromCharCode(...iv)));
+            } else {
+                const key = getOrCreateFallbackKey();
+                localStorage.setItem(STORAGE_KEY_ENC, btoa(xorObfuscate(json, key)));
+            }
+        }
+
+        async function decryptStored() {
+            const encB64 = localStorage.getItem(STORAGE_KEY_ENC);
+            if (!encB64) return null;
+            try {
+                if (hasSubtleCrypto) {
+                    const ivB64 = localStorage.getItem(STORAGE_KEY_IV);
+                    if (!ivB64) return null;
+                    const key = await getCryptoKey();
+                    const encrypted = Uint8Array.from(atob(encB64), c => c.charCodeAt(0));
+                    const iv = Uint8Array.from(atob(ivB64), c => c.charCodeAt(0));
+                    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, encrypted);
+                    return JSON.parse(new TextDecoder().decode(decrypted));
+                } else {
+                    const key = getOrCreateFallbackKey();
+                    return JSON.parse(xorObfuscate(atob(encB64), key));
+                }
+            } catch {
+                return null;
+            }
+        }
+
+        function clearStoredCredentials() {
+            localStorage.removeItem(STORAGE_KEY_ENC);
+            localStorage.removeItem(STORAGE_KEY_IV);
+            localStorage.removeItem(STORAGE_KEY_KEY);
+        }
+
+        // ===== UI Elements =====
+        let currentJobId = null;
+
+        const urlInput = document.getElementById('urlInput');
+        const goBtn = document.getElementById('goBtn');
+        const statusArea = document.getElementById('statusArea');
+        const statusText = document.getElementById('statusText');
+        const statusIcon = document.getElementById('statusIcon');
+        const progressBar = document.getElementById('progressBar');
+        const log = document.getElementById('log');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const errorMsg = document.getElementById('errorMsg');
+        const settingsPanel = document.getElementById('settingsPanel');
+        const settingsToggle = document.getElementById('settingsToggle');
+        const clientIdInput = document.getElementById('clientIdInput');
+        const clientSecretInput = document.getElementById('clientSecretInput');
+        const credWarning = document.getElementById('credWarning');
+        const saveFlash = document.getElementById('saveFlash');
+
+        // ===== Init =====
+        (async function init() {
+            // Load saved credentials into the settings fields
+            const creds = await decryptStored();
+            if (creds && creds.client_id) {
+                clientIdInput.value = creds.client_id;
+                clientSecretInput.value = creds.client_secret;
+                settingsToggle.classList.add('has-creds');
+            }
+
+            // Check server-side status and show warning if neither source has creds
+            fetch('/api/status').then(r => r.json()).then(data => {
+                if (!data.server_credentials && !(creds && creds.client_id)) {
+                    credWarning.classList.add('active');
+                }
+            }).catch(() => {});
+        })();
+
+        urlInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') startDownload();
+        });
+
+        // ===== Settings =====
+        function toggleSettings() {
+            settingsPanel.classList.toggle('active');
+        }
+
+        async function saveCredentials() {
+            const cid = clientIdInput.value.trim();
+            const csec = clientSecretInput.value.trim();
+            if (!cid || !csec) {
+                showError('Both Client ID and Client Secret are required.');
+                return;
+            }
+            await encryptAndStore({ client_id: cid, client_secret: csec });
+            settingsToggle.classList.add('has-creds');
+            credWarning.classList.remove('active');
+            saveFlash.classList.add('show');
+            setTimeout(() => saveFlash.classList.remove('show'), 2000);
+        }
+
+        function clearCredentials() {
+            clearStoredCredentials();
+            clientIdInput.value = '';
+            clientSecretInput.value = '';
+            settingsToggle.classList.remove('has-creds');
+            // Re-check if server has creds
+            fetch('/api/status').then(r => r.json()).then(data => {
+                if (!data.server_credentials) credWarning.classList.add('active');
+            }).catch(() => {});
+        }
+
+        // ===== Download flow =====
+        function showError(msg) {
+            errorMsg.textContent = msg;
+            errorMsg.classList.add('active');
+            setTimeout(() => errorMsg.classList.remove('active'), 5000);
+        }
+
+        function addLog(text, type = '') {
+            const line = document.createElement('div');
+            line.className = 'line' + (type ? ' ' + type : '');
+            line.textContent = text;
+            log.appendChild(line);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function resetUI() {
+            log.innerHTML = '';
+            downloadBtn.classList.remove('active');
+            errorMsg.classList.remove('active');
+            progressBar.className = 'progress-bar-fill indeterminate';
+            progressBar.style.width = '';
+            statusIcon.classList.add('spinning');
+            statusIcon.innerHTML = '<path d="M12 2a10 10 0 0 1 10 10"/>';
+            statusText.textContent = 'Downloading...';
+        }
+
+        async function startDownload() {
+            const url = urlInput.value.trim();
+            if (!url) {
+                showError('Please paste a Spotify link.');
+                return;
+            }
+
+            goBtn.disabled = true;
+            resetUI();
+            statusArea.classList.add('active');
+
+            try {
+                // Get credentials (browser-stored takes priority)
+                const creds = await decryptStored();
+                const body = { url };
+                if (creds && creds.client_id && creds.client_secret) {
+                    body.client_id = creds.client_id;
+                    body.client_secret = creds.client_secret;
+                }
+
+                const res = await fetch('/api/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+
+                if (!res.ok) {
+                    const data = await res.json();
+                    throw new Error(data.detail || 'Invalid request');
+                }
+
+                const { job_id, url: validatedUrl } = await res.json();
+                currentJobId = job_id;
+
+                const evtSource = new EventSource(`/api/progress/${job_id}?url=${encodeURIComponent(validatedUrl)}`);
+
+                evtSource.onmessage = (e) => {
+                    const msg = e.data;
+
+                    if (msg.startsWith('DONE:')) {
+                        evtSource.close();
+                        const info = msg.replace('DONE:', '');
+                        statusIcon.classList.remove('spinning');
+                        statusIcon.innerHTML = '<circle cx="12" cy="12" r="10" fill="none" stroke="#1DB954" stroke-width="2"/><path d="M8 12l3 3 5-5" stroke="#1DB954" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
+                        statusText.textContent = `Done — ${info}`;
+                        progressBar.classList.remove('indeterminate');
+                        progressBar.style.width = '100%';
+                        downloadBtn.classList.add('active');
+                        goBtn.disabled = false;
+                        addLog(`Completed: ${info}`, 'success');
+                    } else if (msg.startsWith('ERROR:')) {
+                        evtSource.close();
+                        const errText = msg.replace('ERROR:', '').trim();
+                        statusIcon.classList.remove('spinning');
+                        statusIcon.innerHTML = '<circle cx="12" cy="12" r="10" fill="none" stroke="#E74C3C" stroke-width="2"/><line x1="8" y1="8" x2="16" y2="16" stroke="#E74C3C" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="8" x2="8" y2="16" stroke="#E74C3C" stroke-width="2.5" stroke-linecap="round"/>';
+                        statusText.textContent = 'Download failed';
+                        progressBar.classList.remove('indeterminate');
+                        progressBar.style.width = '0%';
+                        addLog(errText, 'error');
+                        goBtn.disabled = false;
+                    } else {
+                        addLog(msg);
+                    }
+                };
+
+                evtSource.onerror = () => {
+                    evtSource.close();
+                    goBtn.disabled = false;
+                };
+
+            } catch (err) {
+                showError(err.message);
+                statusArea.classList.remove('active');
+                goBtn.disabled = false;
+            }
+        }
+
+        function downloadZip() {
+            if (!currentJobId) return;
+            window.location.href = `/api/zip/${currentJobId}`;
+        }
+    </script>
+</body>
+</html>
