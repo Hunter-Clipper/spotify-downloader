@@ -149,14 +149,14 @@ docker compose up -d
 │  Browser                                        │
 │  ┌───────────────────────────────────────────┐  │
 │  │  Spotify-themed Web UI                    │  │
-│  │  - AES-256-GCM encrypted localStorage    │  │
-│  │  - SSE real-time progress                │  │
-│  │  - One-click ZIP download                │  │
+│  │  - AES-256-GCM encrypted localStorage     │  │
+│  │  - SSE real-time progress                 │  │
+│  │  - One-click ZIP download                 │  │
 │  └──────────────────┬────────────────────────┘  │
 └─────────────────────┼───────────────────────────┘
                       │ HTTPS / HTTP
 ┌─────────────────────┼───────────────────────────┐
-│  Docker Container   │              (port 80)     │
+│  Docker Container   │              (port 80)    │
 │  ┌──────────────────┴────────────────────────┐  │
 │  │  FastAPI Backend                          │  │
 │  │  - Rate limiter    - Job manager          │  │
@@ -166,11 +166,11 @@ docker compose up -d
 │  │  - YouTube matching  - 320kbps encoding   │  │
 │  │  - Metadata embed    - Album art          │  │
 │  └───────────────────────────────────────────┘  │
-│                                                  │
-│  User: appuser (non-root)                        │
-│  FS:   read-only + tmpfs /tmp                    │
-│  Caps: all dropped + NET_BIND_SERVICE            │
-└──────────────────────────────────────────────────┘
+│                                                 │
+│  User: appuser (non-root)                       │
+│  FS:   read-only + tmpfs /tmp                   │
+│  Caps: all dropped + NET_BIND_SERVICE           │
+└─────────────────────────────────────────────────┘
 ```
 
 <br>
