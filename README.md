@@ -52,10 +52,13 @@ docker run -d \
   -p 8000:80 \
   -e SPOTIFY_CLIENT_ID=your_client_id \
   -e SPOTIFY_CLIENT_SECRET=your_client_secret \
+  -v ./downloads:/data/downloads \
   pbdweller/spotify-downloader:latest
 ```
 
 Open **http://localhost:8000** and start downloading.
+
+> The `-v ./downloads:/data/downloads` flag persists completed ZIPs to your host. Omit it for ephemeral in-container storage (downloads still auto-purge after 30 min either way). You can also set a custom path via the `DOWNLOAD_DIR` env var.
 
 ### Docker Compose
 
@@ -68,7 +71,12 @@ services:
     environment:
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
+    volumes:
+      - downloads:/data/downloads
     restart: unless-stopped
+
+volumes:
+  downloads:
 ```
 
 ```bash
@@ -90,8 +98,8 @@ docker compose up -d
 
 **Two ways to provide credentials:**
 
-- **Environment variables** — set `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` on the container
-- **Web UI** — click the gear icon and enter them in the browser (encrypted with AES-256-GCM, stored locally)
+- **Environment variables** — set `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` on the container. When set, the settings panel displays a confirmation notice so you know downloads will work without any browser-side configuration.
+- **Web UI** — click the gear icon and enter them in the browser (encrypted with AES-256-GCM, stored locally). Browser credentials take priority over server env vars if both are present.
 
 <br>
 
@@ -135,6 +143,8 @@ docker compose up -d
 - **Completion chime** (Web Audio API, mute toggle)
 - **Mobile-responsive** layout with `prefers-reduced-motion` support
 - Static **size estimate** per track based on format + bitrate
+- **Server credentials notice** — settings panel confirms when env var creds are active
+- **Clear All Local Data** — wipes saved credentials, history, and settings in one click
 
 </td>
 <td>
@@ -186,6 +196,7 @@ docker compose up -d
 │                                                 │
 │  User: appuser (non-root)                       │
 │  FS:   read-only + tmpfs /tmp                   │
+│         + volume  /data/downloads               │
 │  Caps: all dropped + NET_BIND_SERVICE           │
 └─────────────────────────────────────────────────┘
 ```
@@ -200,6 +211,7 @@ All settings are configured via environment variables:
 |----------|-------------|---------|
 | `SPOTIFY_CLIENT_ID` | Your Spotify API Client ID | _(shared/rate-limited)_ |
 | `SPOTIFY_CLIENT_SECRET` | Your Spotify API Client Secret | _(shared/rate-limited)_ |
+| `DOWNLOAD_DIR` | Path inside the container where ZIPs are written | `/data/downloads` |
 
 Internal defaults (configurable in `app/main.py`):
 
@@ -215,6 +227,9 @@ Internal defaults (configurable in `app/main.py`):
 
 ```
 spotify-downloader/
+├── .github/
+│   └── workflows/
+│       └── docker-publish.yml   # CI/CD: build & push to Docker Hub on push to main
 ├── app/
 │   ├── __init__.py
 │   └── main.py              # FastAPI backend, job manager, purge loop
@@ -263,6 +278,16 @@ tmpfs: [/tmp:noexec,size=2G]          # Ephemeral, non-executable temp
 <br>
 
 ## Changelog
+
+### v2.1.0
+- **New:** `DOWNLOAD_DIR` environment variable — map downloads to any host path via `-v ./downloads:/data/downloads` (default `/data/downloads`, no longer stored in RAM)
+- **New:** Server credentials notice — settings panel shows a confirmation banner when `SPOTIFY_CLIENT_ID`/`SECRET` are configured via Docker env vars
+- **New:** Clear All Local Data button — wipes saved credentials, download history, and all browser settings in one click
+- **New:** GitHub Actions CI/CD — image automatically built and pushed to Docker Hub on every push to `main` (multi-arch: `linux/amd64` + `linux/arm64`)
+- **Fix:** Race condition where more than `MAX_CONCURRENT_JOBS` downloads could start simultaneously
+- **Fix:** `_rate_limits` memory leak — stale IP entries now pruned every 60 s
+- **Fix:** Deprecated FastAPI startup event replaced with `lifespan` context manager
+- **Fix:** Spotify URL validation now rejects non-`https://` schemes
 
 ### v2.0.2
 - **Fix:** Download history now shows track names, album/playlist titles, and track counts instead of just "N tracks downloaded"
