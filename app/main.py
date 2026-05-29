@@ -17,8 +17,26 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-DOWNLOAD_DIR = Path(os.environ.get("DOWNLOAD_DIR", "/data/downloads"))
-DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+def _resolve_download_dir() -> Path:
+    configured = Path(os.environ.get("DOWNLOAD_DIR", "/data/downloads"))
+    try:
+        configured.mkdir(parents=True, exist_ok=True)
+        probe = configured / ".write_probe"
+        probe.touch()
+        probe.unlink()
+        return configured
+    except OSError:
+        import logging
+        logging.warning(
+            f"DOWNLOAD_DIR '{configured}' is not writable "
+            f"(no volume mounted?). Falling back to /tmp/spotdl_downloads."
+        )
+        fallback = Path("/tmp/spotdl_downloads")
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+
+DOWNLOAD_DIR = _resolve_download_dir()
 
 SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
