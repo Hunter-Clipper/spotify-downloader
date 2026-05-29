@@ -1,5 +1,5 @@
 # ---- Stage 1: static ffmpeg binaries ----
-FROM mwader/static-ffmpeg:7 AS ffmpeg
+FROM mwader/static-ffmpeg:8.1 AS ffmpeg
 
 # ---- Stage 2: install Python deps ----
 FROM python:3.12-slim AS builder
