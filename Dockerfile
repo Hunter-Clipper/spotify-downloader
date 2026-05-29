@@ -1,20 +1,20 @@
-# ---- Builder stage: install Python deps ----
+# ---- Stage 1: static ffmpeg binaries ----
+FROM mwader/static-ffmpeg:7 AS ffmpeg
+
+# ---- Stage 2: install Python deps ----
 FROM python:3.12-slim AS builder
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --no-compile --prefix=/install -r requirements.txt
 
-# ---- Runtime stage: minimal image ----
+# ---- Stage 3: minimal runtime ----
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Install only the ffmpeg runtime libs (no dev, no docs, no manpages)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg && \
-    apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc /usr/share/man
+# Static ffmpeg — no apt install, no shared codec libs needed
+COPY --from=ffmpeg /ffmpeg /ffprobe /usr/local/bin/
 
 # Copy pre-built Python packages from builder
 COPY --from=builder /install /usr/local
