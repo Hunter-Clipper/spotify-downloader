@@ -1100,6 +1100,14 @@
                     <option value="128k">128 kbps</option>
                 </select>
             </div>
+            <div class="option-group">
+                <label for="audioProviderSelect">Source</label>
+                <select id="audioProviderSelect">
+                    <option value="youtube-music" selected>YT Music</option>
+                    <option value="youtube">YouTube</option>
+                    <option value="piped">Piped</option>
+                </select>
+            </div>
             <div class="checkbox-group">
                 <input type="checkbox" id="structuredCheck">
                 <label for="structuredCheck">Artist/Album folders</label>
@@ -1337,6 +1345,7 @@
         const serverCredsNotice = document.getElementById('serverCredsNotice');
         const formatSelect = document.getElementById('formatSelect');
         const bitrateSelect = document.getElementById('bitrateSelect');
+        const audioProviderSelect = document.getElementById('audioProviderSelect');
         const structuredCheck = document.getElementById('structuredCheck');
         const linkCount = document.getElementById('linkCount');
         const sizeEstimate = document.getElementById('sizeEstimate');
@@ -1592,6 +1601,7 @@
                     urls: urls,
                     format: formatSelect.value,
                     bitrate: bitrateSelect.value,
+                    audio_provider: audioProviderSelect.value,
                     structured: structuredCheck.checked,
                 };
                 if (creds && creds.client_id && creds.client_secret) {
@@ -1648,7 +1658,7 @@
                         showToast(`Download complete: ${info}`);
                         playChime();
                         sendBrowserNotification(`Download complete: ${info}`);
-                        addToHistory(urls, formatSelect.value, trackCount, trackNames);
+                        addToHistory(urls, formatSelect.value, audioProviderSelect.value, trackCount, trackNames);
                     } else if (msg.startsWith('ERROR:')) {
                         evtSource.close();
                         const errText = msg.replace('ERROR:', '').trim();
@@ -1795,7 +1805,7 @@
             sessionStorage.setItem('dl_history', JSON.stringify(history.slice(0, 20)));
         }
 
-        function addToHistory(urls, format, trackCount, trackNames = []) {
+        function addToHistory(urls, format, audioProvider, trackCount, trackNames = []) {
             const history = getHistory();
             // Build a descriptive title from preview or track names
             let title = '';
@@ -1811,6 +1821,7 @@
             history.unshift({
                 urls: urls,
                 format: format,
+                audioProvider: audioProvider,
                 trackCount: trackCount,
                 trackNames: trackNames,
                 title: title,
@@ -1869,6 +1880,7 @@
             urlInput.value = item.urls.join('\n');
             urlInput.dispatchEvent(new Event('input'));
             formatSelect.value = item.format || 'mp3';
+            audioProviderSelect.value = item.audioProvider || 'youtube-music';
             onFormatChange();
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }

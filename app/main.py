@@ -50,6 +50,7 @@ RATE_LIMIT_MAX_REQUESTS = 10        # Max download requests per window per IP
 
 ALLOWED_FORMATS = {"mp3", "flac", "wav", "ogg"}
 ALLOWED_BITRATES = {"128k", "192k", "256k", "320k"}
+ALLOWED_AUDIO_PROVIDERS = {"youtube-music", "youtube", "piped"}
 
 
 # --- Job state ---
@@ -60,6 +61,7 @@ class Job:
     format: str = "mp3"
     bitrate: str = "320k"
     structured: bool = False
+    audio_provider: str = "youtube-music"
     client_id: str = ""
     client_secret: str = ""
     zip_filename: str = ""
@@ -140,6 +142,7 @@ class DownloadRequest(BaseModel):
     format: str = "mp3"
     bitrate: str = "320k"
     structured: bool = False
+    audio_provider: str = "youtube-music"
 
 
 class PreviewRequest(BaseModel):
@@ -180,6 +183,7 @@ async def _run_spotdl(
     fmt: str = "mp3",
     bitrate: str = "320k",
     structured: bool = False,
+    audio_provider: str = "youtube-music",
     client_id: str = "",
     client_secret: str = "",
 ):
@@ -192,6 +196,7 @@ async def _run_spotdl(
         "--output", str(output_dir / output_template),
         "--format", fmt,
         "--threads", "4",
+        "--audio", audio_provider,
     ]
 
     # Only pass bitrate for lossy formats
@@ -316,13 +321,16 @@ async def download(req: DownloadRequest, request: Request):
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"{str(e)} — {u}")
 
-    # Validate format and bitrate
+    # Validate format, bitrate, and audio provider
     fmt = req.format.lower()
     if fmt not in ALLOWED_FORMATS:
         raise HTTPException(status_code=400, detail=f"Invalid format. Allowed: {', '.join(sorted(ALLOWED_FORMATS))}")
     bitrate = req.bitrate.lower()
     if bitrate not in ALLOWED_BITRATES:
         raise HTTPException(status_code=400, detail=f"Invalid bitrate. Allowed: {', '.join(sorted(ALLOWED_BITRATES))}")
+    audio_provider = req.audio_provider.lower()
+    if audio_provider not in ALLOWED_AUDIO_PROVIDERS:
+        raise HTTPException(status_code=400, detail=f"Invalid audio provider. Allowed: {', '.join(sorted(ALLOWED_AUDIO_PROVIDERS))}")
 
     # Optimistic pre-check (not under lock — enforced atomically in the SSE stream)
     if _active_jobs >= MAX_CONCURRENT_JOBS:
@@ -341,6 +349,7 @@ async def download(req: DownloadRequest, request: Request):
         format=fmt,
         bitrate=bitrate,
         structured=req.structured,
+        audio_provider=audio_provider,
         client_id=req.client_id if req.client_id and req.client_secret else "",
         client_secret=req.client_secret if req.client_id and req.client_secret else "",
     )
@@ -378,7 +387,7 @@ async def progress(job_id: str):
 
         try:
             async for line in _run_spotdl(
-                job.urls, job_dir, job.format, job.bitrate, job.structured, cid, csec
+                job.urls, job_dir, job.format, job.bitrate, job.structured, job.audio_provider, cid, csec
             ):
                 yield f"data: {line}\n\n"
 

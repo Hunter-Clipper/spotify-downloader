@@ -143,6 +143,7 @@ docker compose up -d
 - **Completion chime** (Web Audio API, mute toggle)
 - **Mobile-responsive** layout with `prefers-reduced-motion` support
 - Static **size estimate** per track based on format + bitrate
+- **Audio source selector** — YouTube Music, YouTube, or Piped
 - **Server credentials notice** — settings panel confirms when env var creds are active
 - **Clear All Local Data** — wipes saved credentials, history, and settings in one click
 
@@ -278,6 +279,9 @@ tmpfs: [/tmp:noexec,size=2G]          # Ephemeral, non-executable temp
 <br>
 
 ## Changelog
+
+### v2.2.0
+- **New:** Audio source selector — choose between **YouTube Music** (default), **YouTube**, or **Piped** directly in the UI. Fixes "blocked by YouTube Music" errors by switching to an alternative source without needing a VPN.
 
 ### v2.1.1
 - **Improvement:** Replaced apt-installed `ffmpeg` with static binaries from `mwader/static-ffmpeg:8.1` — eliminates the entire apt layer and all shared codec libraries, significantly reducing image size. Also upgrades ffmpeg to 8.1.
