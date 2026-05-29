@@ -279,6 +279,10 @@ tmpfs: [/tmp:noexec,size=2G]          # Ephemeral, non-executable temp
 
 ## Changelog
 
+### v2.1.1
+- **Improvement:** Replaced apt-installed `ffmpeg` with static binaries from `mwader/static-ffmpeg:8.1` — eliminates the entire apt layer and all shared codec libraries, significantly reducing image size. Also upgrades ffmpeg to 8.1.
+- **Improvement:** Replaced `uvicorn[standard]` with explicit `uvicorn` + `uvloop` + `httptools`, dropping unused `websockets` and `watchfiles` dependencies.
+
 ### v2.1.0
 - **New:** `DOWNLOAD_DIR` environment variable — map downloads to any host path via `-v ./downloads:/data/downloads` (default `/data/downloads`, no longer stored in RAM)
 - **New:** Server credentials notice — settings panel shows a confirmation banner when `SPOTIFY_CLIENT_ID`/`SECRET` are configured via Docker env vars
