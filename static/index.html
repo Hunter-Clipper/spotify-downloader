@@ -845,6 +845,46 @@
         .cred-warning.active { display: block; }
         .cred-warning a { color: #F0A500; text-decoration: underline; cursor: pointer; }
 
+        .server-creds-notice {
+            display: none;
+            font-size: 12px;
+            margin-bottom: 16px;
+            padding: 10px 14px;
+            background: rgba(29, 185, 84, 0.08);
+            border: 1px solid rgba(29, 185, 84, 0.25);
+            border-radius: 10px;
+            line-height: 1.5;
+            color: var(--spotify-text-sub);
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .server-creds-notice.active {
+            display: flex;
+        }
+
+        .server-creds-notice svg {
+            flex-shrink: 0;
+            margin-top: 1px;
+            color: var(--spotify-green);
+        }
+
+        .btn-clear-all {
+            width: 100%;
+            padding: 8px 18px;
+            border-radius: 50px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            background: transparent;
+            color: var(--spotify-text-sub);
+            border: 1px solid var(--spotify-border);
+            transition: all 0.2s;
+            margin-bottom: 16px;
+        }
+
+        .btn-clear-all:hover { background: var(--spotify-card-hover); color: var(--spotify-text); }
+
         /* Drag and drop overlay */
         .drop-overlay {
             display: none;
@@ -1091,6 +1131,11 @@
                 <span class="save-flash" id="saveFlash">Saved</span>
             </h3>
 
+            <div class="server-creds-notice" id="serverCredsNotice">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                <span>Credentials are already configured on the server via Docker environment variables. Downloads will work without adding anything here &mdash; use the fields below only to override them.</span>
+            </div>
+
             <label for="clientIdInput">Client ID</label>
             <input type="text" id="clientIdInput" placeholder="e.g. 1a2b3c4d5e6f..." autocomplete="off" spellcheck="false">
 
@@ -1101,6 +1146,8 @@
                 <button class="btn-save" onclick="saveCredentials()">Save</button>
                 <button class="btn-clear" onclick="clearCredentials()">Clear</button>
             </div>
+
+            <button class="btn-clear-all" onclick="clearAllLocalData()">Clear All Local Data</button>
 
             <div class="security-info" id="securityInfo"></div>
 
@@ -1287,6 +1334,7 @@
         const clientSecretInput = document.getElementById('clientSecretInput');
         const credWarning = document.getElementById('credWarning');
         const saveFlash = document.getElementById('saveFlash');
+        const serverCredsNotice = document.getElementById('serverCredsNotice');
         const formatSelect = document.getElementById('formatSelect');
         const bitrateSelect = document.getElementById('bitrateSelect');
         const structuredCheck = document.getElementById('structuredCheck');
@@ -1424,6 +1472,7 @@
                 if (!data.server_credentials && !(creds && creds.client_id)) {
                     credWarning.classList.add('active');
                 }
+                updateServerCredsBanner(data.server_credentials);
             }).catch(() => {});
 
             updateSizeEstimate();
@@ -1469,6 +1518,25 @@
             fetch('/api/status').then(r => r.json()).then(data => {
                 if (!data.server_credentials) credWarning.classList.add('active');
             }).catch(() => {});
+        }
+
+        function updateServerCredsBanner(hasServerCreds) {
+            serverCredsNotice.classList.toggle('active', !!hasServerCreds);
+        }
+
+        function clearAllLocalData() {
+            localStorage.clear();
+            sessionStorage.clear();
+            clientIdInput.value = '';
+            clientSecretInput.value = '';
+            settingsToggle.classList.remove('has-creds');
+            renderHistory();
+            loadMuteState();
+            fetch('/api/status').then(r => r.json()).then(data => {
+                credWarning.classList.toggle('active', !data.server_credentials);
+                updateServerCredsBanner(data.server_credentials);
+            }).catch(() => {});
+            showToast('All local data cleared.');
         }
 
         // ===== Download flow =====

@@ -22,8 +22,8 @@ COPY --from=builder /install /usr/local
 # Create non-root user with a proper home directory
 RUN groupadd -r appuser && \
     useradd -r -g appuser -d /home/appuser -s /sbin/nologin appuser && \
-    mkdir -p /home/appuser/.config/spotdl /home/appuser/.cache /tmp/spotdl_downloads && \
-    chown -R appuser:appuser /home/appuser /tmp/spotdl_downloads
+    mkdir -p /home/appuser/.config/spotdl /home/appuser/.cache /data/downloads && \
+    chown -R appuser:appuser /home/appuser /data/downloads
 
 ENV HOME=/home/appuser
 

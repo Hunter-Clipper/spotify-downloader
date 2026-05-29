@@ -7,7 +7,7 @@ services:
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
     volumes:
-      - downloads:/tmp/spotdl_downloads
+      - downloads:/data/downloads
     restart: unless-stopped
     # Security hardening
     security_opt:
