@@ -6,6 +6,7 @@ import tempfile
 import time
 import uuid
 import zipfile
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,8 +17,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-
-app = FastAPI(title="Spotify Downloader")
 
 DOWNLOAD_DIR = Path(tempfile.gettempdir()) / "spotdl_downloads"
 DOWNLOAD_DIR.mkdir(exist_ok=True)
@@ -56,8 +55,8 @@ _active_jobs_lock = asyncio.Lock()
 _rate_limits: dict[str, list[float]] = {}
 
 
-@app.on_event("startup")
-async def _startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
         import logging
         logging.warning(
@@ -66,16 +65,28 @@ async def _startup():
             "Get your own free credentials at https://developer.spotify.com/dashboard"
         )
     asyncio.create_task(_purge_loop())
+    yield
+
+
+app = FastAPI(title="Spotify Downloader", lifespan=lifespan)
 
 
 async def _purge_loop():
-    """Background task that purges expired jobs every PURGE_CHECK_INTERVAL seconds."""
+    """Background task that purges expired jobs and stale rate-limit entries."""
     while True:
         await asyncio.sleep(PURGE_CHECK_INTERVAL)
         now = time.time()
+
         expired = [jid for jid, job in _jobs.items() if now - job.created_at > JOB_TTL_SECONDS]
         for jid in expired:
             _cleanup_job(jid)
+
+        stale_ips = [
+            ip for ip, ts in _rate_limits.items()
+            if not any(now - t < RATE_LIMIT_WINDOW for t in ts)
+        ]
+        for ip in stale_ips:
+            del _rate_limits[ip]
 
 
 def _cleanup_job(job_id: str):
@@ -89,9 +100,9 @@ def _cleanup_job(job_id: str):
 def _check_rate_limit(ip: str):
     """Enforce per-IP rate limiting. Raises HTTPException if exceeded."""
     now = time.time()
-    timestamps = _rate_limits.get(ip, [])
-    timestamps = [t for t in timestamps if now - t < RATE_LIMIT_WINDOW]
+    timestamps = [t for t in _rate_limits.get(ip, []) if now - t < RATE_LIMIT_WINDOW]
     if len(timestamps) >= RATE_LIMIT_MAX_REQUESTS:
+        _rate_limits[ip] = timestamps
         raise HTTPException(
             status_code=429,
             detail=f"Rate limit exceeded. Max {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW}s.",
@@ -119,12 +130,11 @@ class PreviewRequest(BaseModel):
 
 
 def _validate_spotify_url(url: str) -> str:
-    """Validate that the URL is a Spotify link."""
+    """Validate that the URL is a Spotify track, album, or playlist link."""
     url = url.strip()
-    if not any(
-        pattern in url
-        for pattern in ["open.spotify.com/track", "open.spotify.com/album", "open.spotify.com/playlist"]
-    ):
+    if not url.startswith(("https://open.spotify.com/", "http://open.spotify.com/")):
+        raise ValueError("Invalid Spotify URL. Must be a track, album, or playlist link.")
+    if not any(part in url for part in ["/track/", "/album/", "/playlist/"]):
         raise ValueError("Invalid Spotify URL. Must be a track, album, or playlist link.")
     return url
 
@@ -215,11 +225,10 @@ async def _run_spotdl(
 
 def _build_zip_filename(job_dir: Path, urls: list[str], fmt: str, structured: bool) -> str:
     """Build a descriptive zip filename from the downloaded tracks."""
-    ext = fmt if fmt != "ogg" else "ogg"
     if structured:
-        music_files = sorted(job_dir.rglob(f"*.{ext}"))
+        music_files = sorted(job_dir.rglob(f"*.{fmt}"))
     else:
-        music_files = sorted(job_dir.glob(f"*.{ext}"))
+        music_files = sorted(job_dir.glob(f"*.{fmt}"))
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
@@ -247,14 +256,13 @@ def _build_zip_filename(job_dir: Path, urls: list[str], fmt: str, structured: bo
 
 def _create_zip(source_dir: Path, zip_path: Path, fmt: str, structured: bool):
     """Zip all music files in the source directory."""
-    ext = fmt if fmt != "ogg" else "ogg"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         if structured:
-            for f in source_dir.rglob(f"*.{ext}"):
+            for f in source_dir.rglob(f"*.{fmt}"):
                 arcname = f.relative_to(source_dir)
                 zf.write(f, arcname)
         else:
-            for f in source_dir.glob(f"*.{ext}"):
+            for f in source_dir.glob(f"*.{fmt}"):
                 zf.write(f, f.name)
 
 
@@ -299,7 +307,7 @@ async def download(req: DownloadRequest, request: Request):
     if bitrate not in ALLOWED_BITRATES:
         raise HTTPException(status_code=400, detail=f"Invalid bitrate. Allowed: {', '.join(sorted(ALLOWED_BITRATES))}")
 
-    # Check concurrent job limit
+    # Optimistic pre-check (not under lock — enforced atomically in the SSE stream)
     if _active_jobs >= MAX_CONCURRENT_JOBS:
         raise HTTPException(
             status_code=503,
@@ -327,8 +335,6 @@ async def download(req: DownloadRequest, request: Request):
 @app.get("/api/progress/{job_id}")
 async def progress(job_id: str):
     """SSE endpoint that runs spotdl and streams structured progress events."""
-    global _active_jobs
-
     job = _jobs.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
@@ -346,8 +352,13 @@ async def progress(job_id: str):
         job.client_id = ""
         job.client_secret = ""
 
+        # Atomic concurrency check + increment under the lock
         async with _active_jobs_lock:
+            if _active_jobs >= MAX_CONCURRENT_JOBS:
+                yield "data: ERROR: Server busy — max concurrent downloads reached. Please try again.\n\n"
+                return
             _active_jobs += 1
+
         try:
             async for line in _run_spotdl(
                 job.urls, job_dir, job.format, job.bitrate, job.structured, cid, csec
@@ -355,11 +366,10 @@ async def progress(job_id: str):
                 yield f"data: {line}\n\n"
 
             # Create the zip
-            ext = job.format
             if job.structured:
-                music_files = list(job_dir.rglob(f"*.{ext}"))
+                music_files = list(job_dir.rglob(f"*.{job.format}"))
             else:
-                music_files = list(job_dir.glob(f"*.{ext}"))
+                music_files = list(job_dir.glob(f"*.{job.format}"))
 
             if not music_files:
                 yield "data: ERROR: No tracks were downloaded.\n\n"
@@ -390,14 +400,15 @@ async def preview(req: PreviewRequest):
     if not url or "open.spotify.com" not in url:
         raise HTTPException(status_code=400, detail="Invalid Spotify URL.")
 
-    oembed_url = f"https://open.spotify.com/oembed?url={url}"
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(oembed_url)
+            resp = await client.get(
+                "https://open.spotify.com/oembed",
+                params={"url": url},
+            )
             resp.raise_for_status()
             data = resp.json()
 
-        # Determine type from URL
         url_type = "track"
         if "/album/" in url:
             url_type = "album"

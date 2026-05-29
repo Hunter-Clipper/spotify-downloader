@@ -2,6 +2,7 @@ __pycache__
 *.pyc
 .git
 .env
+.claude
 Dockerfile
 docker-compose.yml
 *.md
