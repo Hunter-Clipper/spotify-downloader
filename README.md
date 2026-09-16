@@ -279,6 +279,9 @@ tmpfs: [/tmp:noexec,size=2G]          # Ephemeral, non-executable temp
 
 ## Changelog
 
+### v2.2.2
+- **Improvement:** Simplified backend and frontend code — deduplicated repeated validation, file-globbing, and log-parsing logic in `app/main.py`, and collapsed duplicated fetch/status and SSE-handling blocks in the frontend into named helpers. No behavior changes.
+
 ### v2.2.1
 - **Fix:** Upgraded spotdl 4.4.3 → 4.5.0. In 4.4.3 the YouTube Music connectivity check was a hard error that blocked all downloads regardless of audio provider. In 4.5.0 it is a warning only — downloads continue.
 - **Fix:** Pinned yt-dlp to 2026.3.17 (latest). The version bundled with spotdl 4.4.3 was ~2 years old and failed against current YouTube.
