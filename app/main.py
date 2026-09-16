@@ -1,15 +1,16 @@
 import asyncio
+import logging
 import os
 import re
 import shutil
 import time
 import uuid
 import zipfile
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -17,7 +18,13 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+logger = logging.getLogger(__name__)
+
+STATIC_DIR = Path(__file__).parent.parent / "static"
+
+
 def _resolve_download_dir() -> Path:
+    """Use DOWNLOAD_DIR if it is writable, otherwise fall back to /tmp."""
     configured = Path(os.environ.get("DOWNLOAD_DIR", "/data/downloads"))
     try:
         configured.mkdir(parents=True, exist_ok=True)
@@ -26,8 +33,7 @@ def _resolve_download_dir() -> Path:
         probe.unlink()
         return configured
     except OSError:
-        import logging
-        logging.warning(
+        logger.warning(
             f"DOWNLOAD_DIR '{configured}' is not writable "
             f"(no volume mounted?). Falling back to /tmp/spotdl_downloads."
         )
@@ -42,7 +48,7 @@ SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
 
 # --- Configuration ---
-JOB_TTL_SECONDS = 30 * 60          # 30 minutes before auto-purge
+JOB_TTL_SECONDS = 30 * 60           # 30 minutes before auto-purge
 PURGE_CHECK_INTERVAL = 60           # Check for stale jobs every 60s
 MAX_CONCURRENT_JOBS = 5             # Max simultaneous downloads
 RATE_LIMIT_WINDOW = 60              # Rate limit window in seconds
@@ -51,6 +57,14 @@ RATE_LIMIT_MAX_REQUESTS = 10        # Max download requests per window per IP
 ALLOWED_FORMATS = {"mp3", "flac", "wav", "ogg"}
 ALLOWED_BITRATES = {"128k", "192k", "256k", "320k"}
 ALLOWED_AUDIO_PROVIDERS = {"youtube-music", "youtube", "piped"}
+
+# Formats that ignore --bitrate
+LOSSLESS_FORMATS = {"flac", "wav"}
+
+# spotdl output patterns used to turn raw log lines into progress events
+FOUND_SONGS_RE = re.compile(r"Found (\d+) songs?", re.IGNORECASE)
+DOWNLOADING_RE = re.compile(r"Downloading\s+", re.IGNORECASE)
+TRACK_DONE_RE = re.compile(r"Downloaded\s+\"|Skipping.*already exists", re.IGNORECASE)
 
 
 # --- Job state ---
@@ -77,20 +91,22 @@ _rate_limits: dict[str, list[float]] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
-        import logging
-        logging.warning(
+        logger.warning(
             "SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET are not set. "
             "Using default shared credentials which are heavily rate-limited. "
             "Get your own free credentials at https://developer.spotify.com/dashboard"
         )
-    asyncio.create_task(_purge_loop())
+    # Keep a reference so the task is not garbage collected mid-flight.
+    purge_task = asyncio.create_task(_purge_loop())
     yield
+    purge_task.cancel()
 
 
 app = FastAPI(title="Spotify Downloader", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
-async def _purge_loop():
+async def _purge_loop() -> None:
     """Background task that purges expired jobs and stale rate-limit entries."""
     while True:
         await asyncio.sleep(PURGE_CHECK_INTERVAL)
@@ -101,37 +117,31 @@ async def _purge_loop():
             _cleanup_job(jid)
 
         stale_ips = [
-            ip for ip, ts in _rate_limits.items()
-            if not any(now - t < RATE_LIMIT_WINDOW for t in ts)
+            ip for ip, timestamps in _rate_limits.items()
+            if not any(now - t < RATE_LIMIT_WINDOW for t in timestamps)
         ]
         for ip in stale_ips:
             del _rate_limits[ip]
 
 
-def _cleanup_job(job_id: str):
+def _cleanup_job(job_id: str) -> None:
     """Remove all files and state for a job."""
-    job_dir = DOWNLOAD_DIR / job_id
-    if job_dir.exists():
-        shutil.rmtree(job_dir, ignore_errors=True)
+    shutil.rmtree(DOWNLOAD_DIR / job_id, ignore_errors=True)
     _jobs.pop(job_id, None)
 
 
-def _check_rate_limit(ip: str):
+def _check_rate_limit(ip: str) -> None:
     """Enforce per-IP rate limiting. Raises HTTPException if exceeded."""
     now = time.time()
     timestamps = [t for t in _rate_limits.get(ip, []) if now - t < RATE_LIMIT_WINDOW]
+    _rate_limits[ip] = timestamps
+
     if len(timestamps) >= RATE_LIMIT_MAX_REQUESTS:
-        _rate_limits[ip] = timestamps
         raise HTTPException(
             status_code=429,
             detail=f"Rate limit exceeded. Max {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW}s.",
         )
     timestamps.append(now)
-    _rate_limits[ip] = timestamps
-
-
-# Serve the frontend
-app.mount("/static", StaticFiles(directory=Path(__file__).parent.parent / "static"), name="static")
 
 
 class DownloadRequest(BaseModel):
@@ -152,29 +162,46 @@ class PreviewRequest(BaseModel):
 def _validate_spotify_url(url: str) -> str:
     """Validate that the URL is a Spotify track, album, or playlist link."""
     url = url.strip()
-    if not url.startswith(("https://open.spotify.com/", "http://open.spotify.com/")):
-        raise ValueError("Invalid Spotify URL. Must be a track, album, or playlist link.")
-    if not any(part in url for part in ["/track/", "/album/", "/playlist/"]):
+    is_spotify = url.startswith(("https://open.spotify.com/", "http://open.spotify.com/"))
+    has_content = any(part in url for part in ("/track/", "/album/", "/playlist/"))
+    if not is_spotify or not has_content:
         raise ValueError("Invalid Spotify URL. Must be a track, album, or playlist link.")
     return url
 
 
-def _extract_name_from_url(url: str) -> str:
-    """Try to extract a human-readable name hint from the Spotify URL type."""
+def _validate_choice(value: str, allowed: set[str], label: str) -> str:
+    """Lowercase and check a request option against its allow-list."""
+    normalized = value.lower()
+    if normalized not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {label}. Allowed: {', '.join(sorted(allowed))}",
+        )
+    return normalized
+
+
+def _spotify_url_type(url: str, default: str = "download") -> str:
+    """Classify a Spotify URL as a track, album, or playlist link."""
     if "/track/" in url:
         return "track"
-    elif "/album/" in url:
+    if "/album/" in url:
         return "album"
-    elif "/playlist/" in url:
+    if "/playlist/" in url:
         return "playlist"
-    return "download"
+    return default
 
 
 def _sanitize_filename(name: str) -> str:
     """Remove characters that are unsafe in filenames."""
-    name = re.sub(r'[<>:"/\\|?*]', '', name)
-    name = name.strip('. ')
+    name = re.sub(r'[<>:"/\\|?*]', "", name).strip(". ")
     return name[:100] if name else "download"
+
+
+def _find_music_files(job_dir: Path, fmt: str, structured: bool) -> list[Path]:
+    """List the downloaded tracks, recursing when artist/album folders are used."""
+    pattern = f"*.{fmt}"
+    files = job_dir.rglob(pattern) if structured else job_dir.glob(pattern)
+    return sorted(files)
 
 
 async def _run_spotdl(
@@ -186,7 +213,7 @@ async def _run_spotdl(
     audio_provider: str = "youtube-music",
     client_id: str = "",
     client_secret: str = "",
-):
+) -> AsyncIterator[str]:
     """Run spotdl and yield progress lines with structured event prefixes."""
     output_template = "{artist}/{album}/{title}" if structured else "{title}"
 
@@ -199,8 +226,7 @@ async def _run_spotdl(
         "--audio", audio_provider,
     ]
 
-    # Only pass bitrate for lossy formats
-    if fmt not in ("flac", "wav"):
+    if fmt not in LOSSLESS_FORMATS:
         cmd += ["--bitrate", bitrate]
 
     cid = client_id or SPOTIFY_CLIENT_ID
@@ -222,20 +248,17 @@ async def _run_spotdl(
         if not decoded:
             continue
 
-        # Try to detect total tracks from spotdl output
-        found_match = re.search(r"Found (\d+) songs?", decoded, re.IGNORECASE)
+        found_match = FOUND_SONGS_RE.search(decoded)
         if found_match:
             track_count = int(found_match.group(1))
             yield f"TOTAL:{track_count}"
 
-        # Detect track download start
-        if re.search(r"Downloading\s+", decoded, re.IGNORECASE) and "song" not in decoded.lower():
+        if DOWNLOADING_RE.search(decoded) and "song" not in decoded.lower():
             yield f"TRACK_START:{decoded}"
 
-        # Detect track completion
-        if re.search(r"Downloaded\s+\"", decoded, re.IGNORECASE) or re.search(r"Skipping.*already exists", decoded, re.IGNORECASE):
+        if TRACK_DONE_RE.search(decoded):
             tracks_done += 1
-            yield f"TRACK_DONE:{tracks_done}/{track_count if track_count else '?'} {decoded}"
+            yield f"TRACK_DONE:{tracks_done}/{track_count or '?'} {decoded}"
 
         yield f"LOG:{decoded}"
 
@@ -245,26 +268,16 @@ async def _run_spotdl(
         raise RuntimeError("spotdl exited with an error")
 
 
-def _build_zip_filename(job_dir: Path, urls: list[str], fmt: str, structured: bool) -> str:
+def _build_zip_filename(music_files: list[Path], urls: list[str]) -> str:
     """Build a descriptive zip filename from the downloaded tracks."""
-    if structured:
-        music_files = sorted(job_dir.rglob(f"*.{fmt}"))
-    else:
-        music_files = sorted(job_dir.glob(f"*.{fmt}"))
-
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-
-    if len(urls) == 1:
-        url_type = _extract_name_from_url(urls[0])
-    else:
-        url_type = "batch"
+    url_type = _spotify_url_type(urls[0]) if len(urls) == 1 else "batch"
 
     if url_type == "track" and len(music_files) == 1:
         base = music_files[0].stem
     elif url_type == "album" and music_files:
-        names = [f.stem for f in music_files]
-        parts = names[0].split(" - ", 1)
-        base = parts[0] if len(parts) > 1 else "album"
+        artist, separator, _ = music_files[0].stem.partition(" - ")
+        base = artist if separator else "album"
     elif url_type == "playlist" and music_files:
         base = "playlist"
     elif url_type == "batch":
@@ -272,20 +285,14 @@ def _build_zip_filename(job_dir: Path, urls: list[str], fmt: str, structured: bo
     else:
         base = "download"
 
-    base = _sanitize_filename(base)
-    return f"{base}_{timestamp}.zip"
+    return f"{_sanitize_filename(base)}_{timestamp}.zip"
 
 
-def _create_zip(source_dir: Path, zip_path: Path, fmt: str, structured: bool):
-    """Zip all music files in the source directory."""
+def _create_zip(music_files: list[Path], source_dir: Path, zip_path: Path) -> None:
+    """Zip the given music files, preserving folders relative to source_dir."""
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        if structured:
-            for f in source_dir.rglob(f"*.{fmt}"):
-                arcname = f.relative_to(source_dir)
-                zf.write(f, arcname)
-        else:
-            for f in source_dir.glob(f"*.{fmt}"):
-                zf.write(f, f.name)
+        for music_file in music_files:
+            zf.write(music_file, music_file.relative_to(source_dir))
 
 
 @app.get("/api/status")
@@ -295,42 +302,32 @@ async def status():
 
 @app.get("/")
 async def index():
-    return FileResponse(Path(__file__).parent.parent / "static" / "index.html")
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.post("/api/download")
 async def download(req: DownloadRequest, request: Request):
     """Start a download job and return the job ID."""
-    client_ip = request.client.host
-    _check_rate_limit(client_ip)
+    _check_rate_limit(request.client.host)
 
-    # Normalize urls
-    urls = list(req.urls) if req.urls else []
-    if req.url and req.url.strip():
+    urls = list(req.urls)
+    if req.url.strip():
         urls.insert(0, req.url.strip())
     urls = list(dict.fromkeys(urls))  # deduplicate preserving order
 
     if not urls:
         raise HTTPException(status_code=400, detail="No URLs provided.")
 
-    # Validate all URLs
     validated = []
-    for u in urls:
+    for url in urls:
         try:
-            validated.append(_validate_spotify_url(u))
+            validated.append(_validate_spotify_url(url))
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=f"{str(e)} — {u}")
+            raise HTTPException(status_code=400, detail=f"{e} — {url}")
 
-    # Validate format, bitrate, and audio provider
-    fmt = req.format.lower()
-    if fmt not in ALLOWED_FORMATS:
-        raise HTTPException(status_code=400, detail=f"Invalid format. Allowed: {', '.join(sorted(ALLOWED_FORMATS))}")
-    bitrate = req.bitrate.lower()
-    if bitrate not in ALLOWED_BITRATES:
-        raise HTTPException(status_code=400, detail=f"Invalid bitrate. Allowed: {', '.join(sorted(ALLOWED_BITRATES))}")
-    audio_provider = req.audio_provider.lower()
-    if audio_provider not in ALLOWED_AUDIO_PROVIDERS:
-        raise HTTPException(status_code=400, detail=f"Invalid audio provider. Allowed: {', '.join(sorted(ALLOWED_AUDIO_PROVIDERS))}")
+    fmt = _validate_choice(req.format, ALLOWED_FORMATS, "format")
+    bitrate = _validate_choice(req.bitrate, ALLOWED_BITRATES, "bitrate")
+    audio_provider = _validate_choice(req.audio_provider, ALLOWED_AUDIO_PROVIDERS, "audio provider")
 
     # Optimistic pre-check (not under lock — enforced atomically in the SSE stream)
     if _active_jobs >= MAX_CONCURRENT_JOBS:
@@ -340,20 +337,19 @@ async def download(req: DownloadRequest, request: Request):
         )
 
     job_id = str(uuid.uuid4())
-    job_dir = DOWNLOAD_DIR / job_id
-    job_dir.mkdir(parents=True, exist_ok=True)
+    (DOWNLOAD_DIR / job_id).mkdir(parents=True, exist_ok=True)
 
-    job = Job(
+    has_user_creds = bool(req.client_id and req.client_secret)
+    _jobs[job_id] = Job(
         job_id=job_id,
         urls=validated,
         format=fmt,
         bitrate=bitrate,
         structured=req.structured,
         audio_provider=audio_provider,
-        client_id=req.client_id if req.client_id and req.client_secret else "",
-        client_secret=req.client_secret if req.client_id and req.client_secret else "",
+        client_id=req.client_id if has_user_creds else "",
+        client_secret=req.client_secret if has_user_creds else "",
     )
-    _jobs[job_id] = job
 
     return {"job_id": job_id}
 
@@ -366,15 +362,13 @@ async def progress(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found.")
 
     job_dir = DOWNLOAD_DIR / job_id
-    if not job_dir.exists():
-        job_dir.mkdir(parents=True, exist_ok=True)
+    job_dir.mkdir(parents=True, exist_ok=True)
 
-    async def event_stream():
+    async def event_stream() -> AsyncIterator[str]:
         global _active_jobs
 
-        cid = job.client_id
-        csec = job.client_secret
-        # Clear credentials from memory after reading
+        # Read the credentials once, then clear them from memory.
+        cid, csec = job.client_id, job.client_secret
         job.client_id = ""
         job.client_secret = ""
 
@@ -391,27 +385,18 @@ async def progress(job_id: str):
             ):
                 yield f"data: {line}\n\n"
 
-            # Create the zip
-            if job.structured:
-                music_files = list(job_dir.rglob(f"*.{job.format}"))
-            else:
-                music_files = list(job_dir.glob(f"*.{job.format}"))
-
+            music_files = _find_music_files(job_dir, job.format, job.structured)
             if not music_files:
                 yield "data: ERROR: No tracks were downloaded.\n\n"
                 return
 
-            zip_filename = _build_zip_filename(job_dir, job.urls, job.format, job.structured)
-            zip_path = job_dir / "tracks.zip"
-            _create_zip(job_dir, zip_path, job.format, job.structured)
+            job.zip_filename = _build_zip_filename(music_files, job.urls)
+            _create_zip(music_files, job_dir, job_dir / "tracks.zip")
 
-            job.zip_filename = zip_filename
-
-            track_names = [f.stem for f in sorted(music_files, key=lambda x: x.name)]
-            names_joined = ";;".join(track_names)
-            yield f"data: DONE:{len(music_files)}|{names_joined}\n\n"
+            track_names = ";;".join(f.stem for f in sorted(music_files, key=lambda p: p.name))
+            yield f"data: DONE:{len(music_files)}|{track_names}\n\n"
         except Exception as e:
-            yield f"data: ERROR: {str(e)}\n\n"
+            yield f"data: ERROR: {e}\n\n"
         finally:
             async with _active_jobs_lock:
                 _active_jobs -= 1
@@ -428,26 +413,17 @@ async def preview(req: PreviewRequest):
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                "https://open.spotify.com/oembed",
-                params={"url": url},
-            )
+            resp = await client.get("https://open.spotify.com/oembed", params={"url": url})
             resp.raise_for_status()
             data = resp.json()
-
-        url_type = "track"
-        if "/album/" in url:
-            url_type = "album"
-        elif "/playlist/" in url:
-            url_type = "playlist"
-
-        return {
-            "title": data.get("title", "Unknown"),
-            "thumbnail_url": data.get("thumbnail_url", ""),
-            "type": url_type,
-        }
     except Exception:
         raise HTTPException(status_code=502, detail="Could not fetch preview from Spotify.")
+
+    return {
+        "title": data.get("title", "Unknown"),
+        "thumbnail_url": data.get("thumbnail_url", ""),
+        "type": _spotify_url_type(url, default="track"),
+    }
 
 
 @app.get("/api/zip/{job_id}")
@@ -458,12 +434,10 @@ async def get_zip(job_id: str):
         raise HTTPException(status_code=404, detail="Zip not found. Download may still be in progress.")
 
     job = _jobs.get(job_id)
-    filename = job.zip_filename if job and job.zip_filename else "spotify_tracks.zip"
-
     return FileResponse(
         zip_path,
         media_type="application/zip",
-        filename=filename,
+        filename=job.zip_filename if job and job.zip_filename else "spotify_tracks.zip",
     )
 
 

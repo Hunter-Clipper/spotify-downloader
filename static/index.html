@@ -572,10 +572,8 @@
             flex-shrink: 0;
         }
 
-        .track-icon.pending { color: var(--spotify-text-sub); }
         .track-icon.downloading { color: var(--spotify-green); animation: spin 1s linear infinite; }
         .track-icon.done { color: var(--spotify-green); }
-        .track-icon.error { color: #E74C3C; }
 
         .track-name {
             color: var(--spotify-text-sub);
@@ -705,6 +703,12 @@
         }
 
         .history-header.expanded svg { transform: rotate(180deg); }
+
+        .history-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
 
         .history-list {
             max-height: 0;
@@ -1158,26 +1162,6 @@
             <button class="btn-clear-all" onclick="clearAllLocalData()">Clear All Local Data</button>
 
             <div class="security-info" id="securityInfo"></div>
-
-            <script>
-                document.getElementById('securityInfo').innerHTML = (crypto && crypto.subtle)
-                    ? '<strong>How your credentials are protected:</strong>'
-                    + '<ul>'
-                    + '<li>Encrypted with <strong>AES-256-GCM</strong> via the Web Crypto API before being stored in your browser\'s localStorage.</li>'
-                    + '<li>Credentials are <strong>never stored on the server</strong> \u2014 sent per-request and discarded from memory immediately after use.</li>'
-                    + '<li>The encryption key is auto-generated and unique to this browser.</li>'
-                    + '<li>Restarting the container does <strong>not</strong> affect your saved credentials (they live in your browser). Clearing browser data will remove them.</li>'
-                    + '</ul><br>'
-                    + '<a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Get free credentials from Spotify Developer Dashboard</a>'
-                    : '<strong>Security notice (HTTP mode):</strong>'
-                    + '<ul>'
-                    + '<li>Full AES-256 encryption requires <strong>HTTPS</strong>. Over plain HTTP, credentials are obfuscated (not plaintext) but not fully encrypted.</li>'
-                    + '<li>For full encryption, access this app via <strong>https://</strong> or <strong>localhost</strong>.</li>'
-                    + '<li>Credentials are <strong>never stored on the server</strong> \u2014 sent per-request and discarded from memory immediately after use.</li>'
-                    + '<li>Restarting the container does <strong>not</strong> affect your saved credentials (they live in your browser). Clearing browser data will remove them.</li>'
-                    + '</ul><br>'
-                    + '<a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Get free credentials from Spotify Developer Dashboard</a>';
-            </script>
         </div>
 
         <div class="cred-warning" id="credWarning">
@@ -1222,7 +1206,7 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                     Recent Downloads
                 </h4>
-                <div style="display:flex;align-items:center;gap:8px;">
+                <div class="history-header-actions">
                     <button class="btn-clear-history" onclick="event.stopPropagation();clearHistory()">Clear All</button>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
                 </div>
@@ -1343,6 +1327,7 @@
         const credWarning = document.getElementById('credWarning');
         const saveFlash = document.getElementById('saveFlash');
         const serverCredsNotice = document.getElementById('serverCredsNotice');
+        const securityInfo = document.getElementById('securityInfo');
         const formatSelect = document.getElementById('formatSelect');
         const bitrateSelect = document.getElementById('bitrateSelect');
         const audioProviderSelect = document.getElementById('audioProviderSelect');
@@ -1362,34 +1347,47 @@
         const toastContainer = document.getElementById('toastContainer');
         const dropOverlay = document.getElementById('dropOverlay');
 
-        // ===== Size estimate lookup (MB per minute of audio, approximate) =====
-        const SIZE_PER_MIN = {
-            'mp3': { '128k': 0.96, '192k': 1.44, '256k': 1.92, '320k': 2.40 },
-            'flac': { '128k': 5.0, '192k': 5.0, '256k': 5.0, '320k': 5.0 },
-            'wav':  { '128k': 10.0, '192k': 10.0, '256k': 10.0, '320k': 10.0 },
-            'ogg':  { '128k': 0.96, '192k': 1.44, '256k': 1.92, '320k': 2.40 },
-        };
+        // ===== Inline SVG markup =====
+        const ICON_SPINNER = '<path d="M12 2a10 10 0 0 1 10 10"/>';
+        const ICON_SUCCESS = '<circle cx="12" cy="12" r="10" fill="none" stroke="#1DB954" stroke-width="2"/>'
+            + '<path d="M8 12l3 3 5-5" stroke="#1DB954" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
+        const ICON_FAILURE = '<circle cx="12" cy="12" r="10" fill="none" stroke="#E74C3C" stroke-width="2"/>'
+            + '<line x1="8" y1="8" x2="16" y2="16" stroke="#E74C3C" stroke-width="2.5" stroke-linecap="round"/>'
+            + '<line x1="16" y1="8" x2="8" y2="16" stroke="#E74C3C" stroke-width="2.5" stroke-linecap="round"/>';
+        const ICON_TRACK_SPINNER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 2a10 10 0 0 1 10 10"/></svg>';
+        const ICON_TRACK_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>';
+        const ICON_SPEAKER = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>';
+        const ICON_SOUND_ON = ICON_SPEAKER + '<path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>';
+        const ICON_SOUND_OFF = ICON_SPEAKER + '<line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>';
+
+        function plural(count, word) {
+            return `${count} ${word}${count === 1 ? '' : 's'}`;
+        }
+
+        // ===== Size estimate (approximate MB per minute of audio) =====
+        const MB_PER_MIN_BY_BITRATE = { '128k': 0.96, '192k': 1.44, '256k': 1.92, '320k': 2.40 };
+        const MB_PER_MIN_LOSSLESS = { 'flac': 5.0, 'wav': 10.0 };
         const AVG_TRACK_MINUTES = 3.5;
+
+        function isLosslessFormat(fmt) {
+            return Object.hasOwn(MB_PER_MIN_LOSSLESS, fmt);
+        }
 
         function updateSizeEstimate() {
             const fmt = formatSelect.value;
-            const br = bitrateSelect.value;
-            const perMin = SIZE_PER_MIN[fmt]?.[br] || 2.4;
-            const perTrack = (perMin * AVG_TRACK_MINUTES).toFixed(1);
-            sizeEstimate.textContent = `~${perTrack} MB/track`;
+            const perMin = isLosslessFormat(fmt)
+                ? MB_PER_MIN_LOSSLESS[fmt]
+                : (MB_PER_MIN_BY_BITRATE[bitrateSelect.value] || 2.4);
+            sizeEstimate.textContent = `~${(perMin * AVG_TRACK_MINUTES).toFixed(1)} MB/track`;
         }
 
         function onFormatChange() {
-            const fmt = formatSelect.value;
-            const isLossless = (fmt === 'flac' || fmt === 'wav');
-            bitrateSelect.disabled = isLossless;
-            if (isLossless) {
+            const lossless = isLosslessFormat(formatSelect.value);
+            bitrateSelect.disabled = lossless;
+            if (lossless) {
                 bitrateSelect.value = '320k';
-                // Show "Lossless" overlay
-                bitrateSelect.options[0].text = 'Lossless';
-            } else {
-                bitrateSelect.options[0].text = '320 kbps';
             }
+            bitrateSelect.options[0].text = lossless ? 'Lossless' : '320 kbps';
             updateSizeEstimate();
             updateFooter();
         }
@@ -1408,11 +1406,10 @@
         }
 
         function updateLinkCount() {
-            const urls = getUrls();
-            const count = urls.length;
+            const count = getUrls().length;
             linkCount.innerHTML = count === 0
                 ? '0 links'
-                : `<strong>${count}</strong> link${count !== 1 ? 's' : ''}`;
+                : `<strong>${count}</strong> link${count === 1 ? '' : 's'}`;
         }
 
         urlInput.addEventListener('input', () => {
@@ -1427,16 +1424,19 @@
         let lastPreviewUrl = '';
         let currentPreviewTitle = '';
 
+        function hidePreview() {
+            previewCard.classList.remove('active');
+            currentPreviewTitle = '';
+        }
+
         function triggerPreview() {
-            const urls = getUrls();
-            const firstUrl = urls[0] || '';
+            const firstUrl = getUrls()[0] || '';
             if (firstUrl === lastPreviewUrl) return;
             lastPreviewUrl = firstUrl;
 
             clearTimeout(previewTimeout);
             if (!firstUrl) {
-                previewCard.classList.remove('active');
-                currentPreviewTitle = '';
+                hidePreview();
                 return;
             }
 
@@ -1447,20 +1447,22 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ url: firstUrl }),
                     });
-                    if (!res.ok) { previewCard.classList.remove('active'); return; }
-                    const data = await res.json();
-                    if (data.thumbnail_url) {
-                        previewImg.src = data.thumbnail_url;
-                        previewTitle.textContent = data.title;
-                        previewType.textContent = data.type;
-                        previewCard.classList.add('active');
-                        currentPreviewTitle = data.title || '';
-                    } else {
-                        previewCard.classList.remove('active');
-                        currentPreviewTitle = '';
+                    if (!res.ok) {
+                        hidePreview();
+                        return;
                     }
+                    const data = await res.json();
+                    if (!data.thumbnail_url) {
+                        hidePreview();
+                        return;
+                    }
+                    previewImg.src = data.thumbnail_url;
+                    previewTitle.textContent = data.title;
+                    previewType.textContent = data.type;
+                    previewCard.classList.add('active');
+                    currentPreviewTitle = data.title || '';
                 } catch {
-                    previewCard.classList.remove('active');
+                    hidePreview();
                 }
             }, 600);
         }
@@ -1468,21 +1470,51 @@
         urlInput.addEventListener('paste', () => setTimeout(triggerPreview, 100));
         urlInput.addEventListener('blur', triggerPreview);
 
+        // ===== Credential banners =====
+        const SECURITY_INFO_SHARED =
+            '<li>Credentials are <strong>never stored on the server</strong> \u2014 sent per-request and discarded from memory immediately after use.</li>'
+            + '<li>Restarting the container does <strong>not</strong> affect your saved credentials (they live in your browser). Clearing browser data will remove them.</li>'
+            + '</ul><br>'
+            + '<a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Get free credentials from Spotify Developer Dashboard</a>';
+
+        function renderSecurityInfo() {
+            securityInfo.innerHTML = hasSubtleCrypto
+                ? '<strong>How your credentials are protected:</strong><ul>'
+                    + '<li>Encrypted with <strong>AES-256-GCM</strong> via the Web Crypto API before being stored in your browser\'s localStorage.</li>'
+                    + '<li>The encryption key is auto-generated and unique to this browser.</li>'
+                    + SECURITY_INFO_SHARED
+                : '<strong>Security notice (HTTP mode):</strong><ul>'
+                    + '<li>Full AES-256 encryption requires <strong>HTTPS</strong>. Over plain HTTP, credentials are obfuscated (not plaintext) but not fully encrypted.</li>'
+                    + '<li>For full encryption, access this app via <strong>https://</strong> or <strong>localhost</strong>.</li>'
+                    + SECURITY_INFO_SHARED;
+        }
+
+        // Shows the "no credentials" warning and the "server has credentials" notice
+        // based on the server's status and whether creds are saved in this browser.
+        async function refreshCredentialBanners(hasLocalCreds) {
+            let serverCredentials = false;
+            try {
+                const res = await fetch('/api/status');
+                serverCredentials = (await res.json()).server_credentials;
+            } catch {
+                return;
+            }
+            credWarning.classList.toggle('active', !serverCredentials && !hasLocalCreds);
+            serverCredsNotice.classList.toggle('active', !!serverCredentials);
+        }
+
         // ===== Init =====
         (async function init() {
+            renderSecurityInfo();
+
             const creds = await decryptStored();
-            if (creds && creds.client_id) {
+            const hasLocalCreds = !!(creds && creds.client_id);
+            if (hasLocalCreds) {
                 clientIdInput.value = creds.client_id;
                 clientSecretInput.value = creds.client_secret;
                 settingsToggle.classList.add('has-creds');
             }
-
-            fetch('/api/status').then(r => r.json()).then(data => {
-                if (!data.server_credentials && !(creds && creds.client_id)) {
-                    credWarning.classList.add('active');
-                }
-                updateServerCredsBanner(data.server_credentials);
-            }).catch(() => {});
+            refreshCredentialBanners(hasLocalCreds);
 
             updateSizeEstimate();
             renderHistory();
@@ -1524,13 +1556,7 @@
             clientIdInput.value = '';
             clientSecretInput.value = '';
             settingsToggle.classList.remove('has-creds');
-            fetch('/api/status').then(r => r.json()).then(data => {
-                if (!data.server_credentials) credWarning.classList.add('active');
-            }).catch(() => {});
-        }
-
-        function updateServerCredsBanner(hasServerCreds) {
-            serverCredsNotice.classList.toggle('active', !!hasServerCreds);
+            refreshCredentialBanners(false);
         }
 
         function clearAllLocalData() {
@@ -1541,10 +1567,7 @@
             settingsToggle.classList.remove('has-creds');
             renderHistory();
             loadMuteState();
-            fetch('/api/status').then(r => r.json()).then(data => {
-                credWarning.classList.toggle('active', !data.server_credentials);
-                updateServerCredsBanner(data.server_credentials);
-            }).catch(() => {});
+            refreshCredentialBanners(false);
             showToast('All local data cleared.');
         }
 
@@ -1578,10 +1601,80 @@
             progressBar.className = 'progress-bar-fill indeterminate';
             progressBar.style.width = '';
             statusIcon.classList.add('spinning');
-            statusIcon.innerHTML = '<path d="M12 2a10 10 0 0 1 10 10"/>';
+            statusIcon.innerHTML = ICON_SPINNER;
             statusText.textContent = 'Downloading...';
             totalTracks = 0;
             tracksDone = 0;
+        }
+
+        // ===== Progress event handling =====
+        // The DONE payload is "<count>|<name>;;<name>;;..." (names are optional).
+        function parseDonePayload(payload) {
+            const sepIdx = payload.indexOf('|');
+            if (sepIdx === -1) {
+                return { trackCount: parseInt(payload, 10) || 0, trackNames: [] };
+            }
+            return {
+                trackCount: parseInt(payload.slice(0, sepIdx), 10) || 0,
+                trackNames: payload.slice(sepIdx + 1).split(';;').filter(Boolean),
+            };
+        }
+
+        function showJobComplete(payload, urls) {
+            const { trackCount, trackNames } = parseDonePayload(payload);
+            const info = `${plural(trackCount, 'track')} downloaded`;
+
+            statusIcon.classList.remove('spinning');
+            statusIcon.innerHTML = ICON_SUCCESS;
+            statusText.textContent = `Done \u2014 ${info}`;
+            progressBar.classList.remove('indeterminate');
+            progressBar.style.width = '100%';
+            downloadBtn.classList.add('active');
+            goBtn.disabled = false;
+
+            addLog(`Completed: ${info}`, 'success');
+            showToast(`Download complete: ${info}`);
+            playChime();
+            sendBrowserNotification(`Download complete: ${info}`);
+            addToHistory(urls, formatSelect.value, audioProviderSelect.value, trackCount, trackNames);
+        }
+
+        function showJobFailed(errText) {
+            statusIcon.classList.remove('spinning');
+            statusIcon.innerHTML = ICON_FAILURE;
+            statusText.textContent = 'Download failed';
+            progressBar.classList.remove('indeterminate');
+            progressBar.style.width = '0%';
+            addLog(errText, 'error');
+            showToast(errText, true);
+            goBtn.disabled = false;
+        }
+
+        function handleProgressEvent(msg) {
+            if (msg.startsWith('TOTAL:')) {
+                totalTracks = parseInt(msg.slice('TOTAL:'.length), 10) || 0;
+                statusText.textContent = `Downloading ${plural(totalTracks, 'track')}...`;
+                return;
+            }
+            if (msg.startsWith('TRACK_START:')) {
+                addTrackItem(msg.slice('TRACK_START:'.length).trim());
+                return;
+            }
+            if (msg.startsWith('TRACK_DONE:')) {
+                tracksDone++;
+                markLastTrackDone();
+                if (totalTracks > 0) {
+                    progressBar.classList.remove('indeterminate');
+                    progressBar.style.width = Math.round((tracksDone / totalTracks) * 100) + '%';
+                    statusText.textContent = `Downloading... ${tracksDone}/${totalTracks}`;
+                }
+                return;
+            }
+            if (msg.startsWith('LOG:')) {
+                addLog(msg.slice('LOG:'.length));
+                return;
+            }
+            addLog(msg);
         }
 
         async function startDownload() {
@@ -1632,64 +1725,14 @@
 
                 evtSource.onmessage = (e) => {
                     const msg = e.data;
-
                     if (msg.startsWith('DONE:')) {
                         evtSource.close();
-                        const payload = msg.replace('DONE:', '');
-                        let trackCount = 0;
-                        let trackNames = [];
-                        if (payload.includes('|')) {
-                            const pipeIdx = payload.indexOf('|');
-                            trackCount = parseInt(payload.substring(0, pipeIdx), 10) || 0;
-                            const namesStr = payload.substring(pipeIdx + 1);
-                            trackNames = namesStr ? namesStr.split(';;').filter(n => n) : [];
-                        } else {
-                            trackCount = parseInt(payload, 10) || 0;
-                        }
-                        const info = `${trackCount} track${trackCount !== 1 ? 's' : ''} downloaded`;
-                        statusIcon.classList.remove('spinning');
-                        statusIcon.innerHTML = '<circle cx="12" cy="12" r="10" fill="none" stroke="#1DB954" stroke-width="2"/><path d="M8 12l3 3 5-5" stroke="#1DB954" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
-                        statusText.textContent = `Done \u2014 ${info}`;
-                        progressBar.classList.remove('indeterminate');
-                        progressBar.style.width = '100%';
-                        downloadBtn.classList.add('active');
-                        goBtn.disabled = false;
-                        addLog(`Completed: ${info}`, 'success');
-                        showToast(`Download complete: ${info}`);
-                        playChime();
-                        sendBrowserNotification(`Download complete: ${info}`);
-                        addToHistory(urls, formatSelect.value, audioProviderSelect.value, trackCount, trackNames);
+                        showJobComplete(msg.slice('DONE:'.length), urls);
                     } else if (msg.startsWith('ERROR:')) {
                         evtSource.close();
-                        const errText = msg.replace('ERROR:', '').trim();
-                        statusIcon.classList.remove('spinning');
-                        statusIcon.innerHTML = '<circle cx="12" cy="12" r="10" fill="none" stroke="#E74C3C" stroke-width="2"/><line x1="8" y1="8" x2="16" y2="16" stroke="#E74C3C" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="8" x2="8" y2="16" stroke="#E74C3C" stroke-width="2.5" stroke-linecap="round"/>';
-                        statusText.textContent = 'Download failed';
-                        progressBar.classList.remove('indeterminate');
-                        progressBar.style.width = '0%';
-                        addLog(errText, 'error');
-                        showToast(errText, true);
-                        goBtn.disabled = false;
-                    } else if (msg.startsWith('TOTAL:')) {
-                        totalTracks = parseInt(msg.replace('TOTAL:', ''), 10) || 0;
-                        statusText.textContent = `Downloading ${totalTracks} track${totalTracks !== 1 ? 's' : ''}...`;
-                    } else if (msg.startsWith('TRACK_START:')) {
-                        const detail = msg.replace('TRACK_START:', '').trim();
-                        addTrackItem(detail, 'downloading');
-                    } else if (msg.startsWith('TRACK_DONE:')) {
-                        const detail = msg.replace('TRACK_DONE:', '').trim();
-                        tracksDone++;
-                        markLastTrackDone();
-                        if (totalTracks > 0) {
-                            const pct = Math.round((tracksDone / totalTracks) * 100);
-                            progressBar.classList.remove('indeterminate');
-                            progressBar.style.width = pct + '%';
-                            statusText.textContent = `Downloading... ${tracksDone}/${totalTracks}`;
-                        }
-                    } else if (msg.startsWith('LOG:')) {
-                        addLog(msg.replace('LOG:', ''));
+                        showJobFailed(msg.slice('ERROR:'.length).trim());
                     } else {
-                        addLog(msg);
+                        handleProgressEvent(msg);
                     }
                 };
 
@@ -1706,44 +1749,28 @@
         }
 
         // ===== Track list management =====
-        function addTrackItem(name, status) {
-            // If there's already a 'downloading' item, mark it done
-            const items = trackListEl.querySelectorAll('.track-item');
-            items.forEach(item => {
-                const icon = item.querySelector('.track-icon');
-                if (icon && icon.classList.contains('downloading')) {
-                    icon.classList.remove('downloading');
-                    icon.classList.add('done');
-                    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>';
-                    item.classList.add('done');
-                }
+        // Marks every in-flight row as finished; spotdl reports completions out of
+        // order, so the pending row is resolved when the next event arrives.
+        function markLastTrackDone() {
+            trackListEl.querySelectorAll('.track-item .track-icon.downloading').forEach(icon => {
+                icon.classList.remove('downloading');
+                icon.classList.add('done');
+                icon.innerHTML = ICON_TRACK_CHECK;
+                icon.closest('.track-item').classList.add('done');
             });
+        }
+
+        function addTrackItem(name) {
+            markLastTrackDone();
 
             const el = document.createElement('div');
             el.className = 'track-item';
             el.innerHTML = `
-                <span class="track-icon ${status}">
-                    ${status === 'downloading'
-                        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 2a10 10 0 0 1 10 10"/></svg>'
-                        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>'}
-                </span>
+                <span class="track-icon downloading">${ICON_TRACK_SPINNER}</span>
                 <span class="track-name">${escapeHtml(name)}</span>
             `;
             trackListEl.appendChild(el);
             trackListEl.scrollTop = trackListEl.scrollHeight;
-        }
-
-        function markLastTrackDone() {
-            const items = trackListEl.querySelectorAll('.track-item');
-            items.forEach(item => {
-                const icon = item.querySelector('.track-icon');
-                if (icon && icon.classList.contains('downloading')) {
-                    icon.classList.remove('downloading');
-                    icon.classList.add('done');
-                    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>';
-                    item.classList.add('done');
-                }
-            });
         }
 
         function escapeHtml(text) {
@@ -1805,26 +1832,24 @@
             sessionStorage.setItem('dl_history', JSON.stringify(history.slice(0, 20)));
         }
 
+        // Build a descriptive title from the preview card or the downloaded track names
+        function buildHistoryTitle(urls, trackNames) {
+            if (currentPreviewTitle && urls.length === 1) return currentPreviewTitle;
+            if (trackNames.length === 1) return trackNames[0];
+            if (trackNames.length > 1) return `${trackNames[0]} + ${trackNames.length - 1} more`;
+            if (urls.length === 1) return urls[0];
+            return `${urls.length} URLs`;
+        }
+
         function addToHistory(urls, format, audioProvider, trackCount, trackNames = []) {
             const history = getHistory();
-            // Build a descriptive title from preview or track names
-            let title = '';
-            if (currentPreviewTitle && urls.length === 1) {
-                title = currentPreviewTitle;
-            } else if (trackNames.length === 1) {
-                title = trackNames[0];
-            } else if (trackNames.length > 1) {
-                title = trackNames[0] + ' + ' + (trackNames.length - 1) + ' more';
-            } else {
-                title = urls.length === 1 ? urls[0] : urls.length + ' URLs';
-            }
             history.unshift({
-                urls: urls,
-                format: format,
-                audioProvider: audioProvider,
-                trackCount: trackCount,
-                trackNames: trackNames,
-                title: title,
+                urls,
+                format,
+                audioProvider,
+                trackCount,
+                trackNames,
+                title: buildHistoryTitle(urls, trackNames),
                 time: new Date().toLocaleTimeString(),
             });
             saveHistory(history);
@@ -1839,9 +1864,9 @@
             }
             historySection.classList.add('active');
             historyList.innerHTML = history.map((item, i) => {
-                const title = item.title || item.info || item.urls[0] || 'Download';
+                const title = item.title || item.urls[0] || 'Download';
                 const count = item.trackCount || 0;
-                const trackInfo = count ? `${count} track${count !== 1 ? 's' : ''}` : (item.info || '');
+                const trackInfo = count ? plural(count, 'track') : '';
                 return `
                 <div class="history-item">
                     <div class="history-item-info">
@@ -1891,9 +1916,7 @@
             toast.className = 'toast' + (isError ? ' error' : '');
             toast.textContent = message;
             toastContainer.appendChild(toast);
-            setTimeout(() => {
-                if (toast.parentNode) toast.parentNode.removeChild(toast);
-            }, 5000);
+            setTimeout(() => toast.remove(), 5000);
         }
 
         // ===== Browser notifications =====
@@ -1922,44 +1945,31 @@
         }
 
         function updateMuteIcon() {
-            if (isMuted) {
-                muteToggle.classList.add('muted');
-                muteIcon.innerHTML = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>';
-            } else {
-                muteToggle.classList.remove('muted');
-                muteIcon.innerHTML = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>';
-            }
+            muteToggle.classList.toggle('muted', isMuted);
+            muteIcon.innerHTML = isMuted ? ICON_SOUND_OFF : ICON_SOUND_ON;
+        }
+
+        // Plays a single sine tone that fades out between startAt and endAt (seconds).
+        function playTone(ctx, frequency, startAt, endAt) {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = frequency;
+            gain.gain.setValueAtTime(0.15, startAt);
+            gain.gain.exponentialRampToValueAtTime(0.001, endAt);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(startAt);
+            osc.stop(endAt);
         }
 
         function playChime() {
             if (isMuted) return;
             try {
                 const ctx = new (window.AudioContext || window.webkitAudioContext)();
-
-                // First tone
-                const osc1 = ctx.createOscillator();
-                const gain1 = ctx.createGain();
-                osc1.type = 'sine';
-                osc1.frequency.value = 587.33; // D5
-                gain1.gain.setValueAtTime(0.15, ctx.currentTime);
-                gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-                osc1.connect(gain1);
-                gain1.connect(ctx.destination);
-                osc1.start(ctx.currentTime);
-                osc1.stop(ctx.currentTime + 0.3);
-
-                // Second tone (higher, slight delay)
-                const osc2 = ctx.createOscillator();
-                const gain2 = ctx.createGain();
-                osc2.type = 'sine';
-                osc2.frequency.value = 880; // A5
-                gain2.gain.setValueAtTime(0.15, ctx.currentTime + 0.15);
-                gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-                osc2.connect(gain2);
-                gain2.connect(ctx.destination);
-                osc2.start(ctx.currentTime + 0.15);
-                osc2.stop(ctx.currentTime + 0.5);
-
+                const now = ctx.currentTime;
+                playTone(ctx, 587.33, now, now + 0.3);         // D5
+                playTone(ctx, 880, now + 0.15, now + 0.5);     // A5, slight delay
                 setTimeout(() => ctx.close(), 1000);
             } catch {
                 // Web Audio not available
