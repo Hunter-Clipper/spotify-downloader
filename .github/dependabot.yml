@@ -13,6 +13,13 @@ updates:
       app-dependencies:
         patterns: ["*"]
         exclude-patterns: ["yt-dlp", "spotdl"]
+    ignore:
+      # spotdl pins fastapi<0.104 and uvicorn<0.24; newer versions can't be installed.
+      # Remove these once spotdl relaxes its constraints.
+      - dependency-name: fastapi
+        versions: [">=0.104"]
+      - dependency-name: uvicorn
+        versions: [">=0.24"]
     commit-message:
       prefix: deps
 
