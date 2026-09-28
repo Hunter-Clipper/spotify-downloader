@@ -7,7 +7,7 @@
 ### Grab your favorite tracks, albums & playlists in **MP3, FLAC, WAV, or OGG**
 
 [![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/pbdweller/spotify-downloader)
-[![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![Python](https://img.shields.io/badge/Python-3.14-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 
 <br>
@@ -347,6 +347,11 @@ tmpfs: [/home/appuser:uid=999,...]    # Writable home for spotdl config + yt-dlp
 
 ## Changelog
 
+### v2.3.1
+- **Improvement:** Upgraded the base image to Python 3.14 (from 3.12) and ffmpeg to 9.0 (from 8.1).
+- **Improvement:** Upgraded spotdl 4.5.0 → 4.5.2, uvloop 0.19.0 → 0.22.1, httptools 0.6.1 → 0.8.0, and httpx 0.27.0 → 0.28.1. FastAPI and uvicorn stay at 0.103.2 / 0.23.2, the newest versions spotdl supports; Dependabot now skips bumps beyond that range.
+- **Improvement:** Updated all GitHub Actions to their current major versions (Node 24 runtime), removing the Node 20 deprecation warnings.
+
 ### v2.3.0
 - **New:** REST API (`/api/v1/jobs`) so other apps can trigger downloads — background jobs with status polling, direct audio file (single track) or ZIP delivery, protected by the `API_KEY` env var. See [REST API](#rest-api).
 - **Fix:** Long-running downloads are no longer purged mid-download; jobs now expire 30 minutes after they finish.
@@ -404,7 +409,7 @@ tmpfs: [/home/appuser:uid=999,...]    # Writable home for spotdl config + yt-dlp
 
 | Component | Technology |
 |-----------|-----------|
-| **Backend** | Python 3.12 + FastAPI |
+| **Backend** | Python 3.14 + FastAPI |
 | **Download Engine** | spotdl + yt-dlp + Deno + ffmpeg |
 | **Frontend** | Vanilla HTML/CSS/JS |
 | **Progress** | Server-Sent Events (SSE) |
