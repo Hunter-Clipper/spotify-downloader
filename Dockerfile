@@ -1,6 +1,9 @@
 # ---- Stage 1: static ffmpeg binaries ----
 FROM mwader/static-ffmpeg:8.1 AS ffmpeg
 
+# ---- Stage 1b: Deno — yt-dlp needs a JS runtime to solve YouTube challenges ----
+FROM denoland/deno:bin-2.9.7 AS deno
+
 # ---- Stage 2: install Python deps ----
 FROM python:3.12-slim AS builder
 
@@ -15,13 +18,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # Static ffmpeg — no apt install, no shared codec libs needed
 COPY --from=ffmpeg /ffmpeg /ffprobe /usr/local/bin/
+COPY --from=deno /deno /usr/local/bin/deno
 
 # Copy pre-built Python packages from builder
 COPY --from=builder /install /usr/local
 
 # Create non-root user with a proper home directory
-RUN groupadd -r appuser && \
-    useradd -r -g appuser -d /home/appuser -s /sbin/nologin appuser && \
+RUN groupadd -r -g 999 appuser && \
+    useradd -r -u 999 -g appuser -d /home/appuser -s /sbin/nologin appuser && \
     mkdir -p /home/appuser/.config/spotdl /home/appuser/.cache /data/downloads && \
     chown -R appuser:appuser /home/appuser /data/downloads
 

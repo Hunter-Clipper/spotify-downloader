@@ -6,6 +6,7 @@ services:
     environment:
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
+      - API_KEY=${API_KEY:-}
     volumes:
       - downloads:/data/downloads
     restart: unless-stopped
@@ -15,6 +16,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp:noexec,size=2G
+      # spotdl config + yt-dlp/Deno caches; must be writable with read_only: true
+      - /home/appuser:size=256M,uid=999,gid=999,mode=0700
     cap_drop:
       - ALL
     cap_add:

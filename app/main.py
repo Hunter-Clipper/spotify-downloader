@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import re
+import secrets
 import shutil
 import time
 import uuid
@@ -13,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -46,6 +47,8 @@ DOWNLOAD_DIR = _resolve_download_dir()
 
 SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
+# Enables the /api/v1 API for other apps; the API is disabled when unset.
+API_KEY = os.environ.get("API_KEY", "")
 
 # --- Configuration ---
 JOB_TTL_SECONDS = 30 * 60           # 30 minutes before auto-purge
@@ -80,6 +83,14 @@ class Job:
     client_secret: str = ""
     zip_filename: str = ""
     created_at: float = field(default_factory=time.time)
+    # Tracked for /api/v1 status polling
+    status: str = "pending"             # pending | running | done | failed
+    total: int = 0
+    completed: int = 0
+    tracks: list[str] = field(default_factory=list)
+    error: str = ""
+    result_file: str = ""               # Path relative to the job dir served by /api/v1
+    finished_at: float = 0.0
 
 
 _jobs: dict[str, Job] = {}
@@ -112,7 +123,11 @@ async def _purge_loop() -> None:
         await asyncio.sleep(PURGE_CHECK_INTERVAL)
         now = time.time()
 
-        expired = [jid for jid, job in _jobs.items() if now - job.created_at > JOB_TTL_SECONDS]
+        # Never purge a running job; finished jobs expire relative to when they finished.
+        expired = [
+            jid for jid, job in _jobs.items()
+            if job.status != "running" and now - (job.finished_at or job.created_at) > JOB_TTL_SECONDS
+        ]
         for jid in expired:
             _cleanup_job(jid)
 
@@ -142,6 +157,34 @@ def _check_rate_limit(ip: str) -> None:
             detail=f"Rate limit exceeded. Max {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW}s.",
         )
     timestamps.append(now)
+
+
+async def _try_acquire_slot() -> bool:
+    """Atomically claim a download slot. Returns False if the server is at capacity."""
+    global _active_jobs
+    async with _active_jobs_lock:
+        if _active_jobs >= MAX_CONCURRENT_JOBS:
+            return False
+        _active_jobs += 1
+        return True
+
+
+async def _release_slot() -> None:
+    global _active_jobs
+    async with _active_jobs_lock:
+        _active_jobs -= 1
+
+
+def _require_api_key(
+    x_api_key: str = Header(default=""),
+    authorization: str = Header(default=""),
+) -> None:
+    """Authenticate /api/v1 requests via X-API-Key or Authorization: Bearer."""
+    if not API_KEY:
+        raise HTTPException(status_code=503, detail="API is disabled. Set the API_KEY environment variable to enable it.")
+    token = x_api_key or authorization.removeprefix("Bearer ").strip()
+    if not secrets.compare_digest(token.encode(), API_KEY.encode()):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key.")
 
 
 class DownloadRequest(BaseModel):
@@ -242,6 +285,7 @@ async def _run_spotdl(
 
     track_count = 0
     tracks_done = 0
+    last_line = ""
 
     async for line in process.stdout:
         decoded = line.decode("utf-8", errors="replace").strip()
@@ -260,12 +304,13 @@ async def _run_spotdl(
             tracks_done += 1
             yield f"TRACK_DONE:{tracks_done}/{track_count or '?'} {decoded}"
 
+        last_line = decoded
         yield f"LOG:{decoded}"
 
     await process.wait()
 
     if process.returncode != 0:
-        raise RuntimeError("spotdl exited with an error")
+        raise RuntimeError(f"spotdl exited with an error: {last_line}" if last_line else "spotdl exited with an error")
 
 
 def _build_zip_filename(music_files: list[Path], urls: list[str]) -> str:
@@ -305,11 +350,8 @@ async def index():
     return FileResponse(STATIC_DIR / "index.html")
 
 
-@app.post("/api/download")
-async def download(req: DownloadRequest, request: Request):
-    """Start a download job and return the job ID."""
-    _check_rate_limit(request.client.host)
-
+def _build_job(req: DownloadRequest) -> Job:
+    """Validate a download request and turn it into a Job (not yet registered)."""
     urls = list(req.urls)
     if req.url.strip():
         urls.insert(0, req.url.strip())
@@ -329,19 +371,9 @@ async def download(req: DownloadRequest, request: Request):
     bitrate = _validate_choice(req.bitrate, ALLOWED_BITRATES, "bitrate")
     audio_provider = _validate_choice(req.audio_provider, ALLOWED_AUDIO_PROVIDERS, "audio provider")
 
-    # Optimistic pre-check (not under lock — enforced atomically in the SSE stream)
-    if _active_jobs >= MAX_CONCURRENT_JOBS:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Server busy — max {MAX_CONCURRENT_JOBS} concurrent downloads. Please try again shortly.",
-        )
-
-    job_id = str(uuid.uuid4())
-    (DOWNLOAD_DIR / job_id).mkdir(parents=True, exist_ok=True)
-
     has_user_creds = bool(req.client_id and req.client_secret)
-    _jobs[job_id] = Job(
-        job_id=job_id,
+    return Job(
+        job_id=str(uuid.uuid4()),
         urls=validated,
         format=fmt,
         bitrate=bitrate,
@@ -351,7 +383,77 @@ async def download(req: DownloadRequest, request: Request):
         client_secret=req.client_secret if has_user_creds else "",
     )
 
-    return {"job_id": job_id}
+
+def _register_job(job: Job) -> None:
+    (DOWNLOAD_DIR / job.job_id).mkdir(parents=True, exist_ok=True)
+    _jobs[job.job_id] = job
+
+
+BUSY_DETAIL = f"Server busy — max {MAX_CONCURRENT_JOBS} concurrent downloads. Please try again shortly."
+
+
+async def _execute_job(job: Job) -> AsyncIterator[str]:
+    """Run spotdl for a job, update its status, and zip the results.
+
+    The caller must hold a download slot. Yields spotdl progress lines; raises on failure.
+    """
+    job_dir = DOWNLOAD_DIR / job.job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    # Read the credentials once, then clear them from memory.
+    cid, csec = job.client_id, job.client_secret
+    job.client_id = ""
+    job.client_secret = ""
+
+    job.status = "running"
+    try:
+        async for line in _run_spotdl(
+            job.urls, job_dir, job.format, job.bitrate, job.structured, job.audio_provider, cid, csec
+        ):
+            if line.startswith("TOTAL:"):
+                job.total = int(line.removeprefix("TOTAL:"))
+            elif line.startswith("TRACK_DONE:"):
+                job.completed += 1
+            yield line
+
+        music_files = _find_music_files(job_dir, job.format, job.structured)
+        if not music_files:
+            raise RuntimeError("No tracks were downloaded.")
+
+        job.zip_filename = _build_zip_filename(music_files, job.urls)
+        _create_zip(music_files, job_dir, job_dir / "tracks.zip")
+
+        job.tracks = [f.stem for f in sorted(music_files, key=lambda p: p.name)]
+        job.completed = len(music_files)
+        job.total = max(job.total, job.completed)  # spotdl omits "Found N songs" for single tracks
+        # A single track is served as-is; anything more is served as the zip.
+        result = music_files[0] if len(music_files) == 1 else job_dir / "tracks.zip"
+        job.result_file = str(result.relative_to(job_dir))
+        job.status = "done"
+    except Exception as e:
+        job.status = "failed"
+        job.error = str(e)
+        raise
+    finally:
+        # e.g. the SSE client disconnected mid-download, closing this generator
+        if job.status == "running":
+            job.status = "failed"
+            job.error = "Download was interrupted."
+        job.finished_at = time.time()
+
+
+@app.post("/api/download")
+async def download(req: DownloadRequest, request: Request):
+    """Start a download job and return the job ID."""
+    _check_rate_limit(request.client.host)
+    job = _build_job(req)
+
+    # Optimistic pre-check (not under lock — enforced atomically in the SSE stream)
+    if _active_jobs >= MAX_CONCURRENT_JOBS:
+        raise HTTPException(status_code=503, detail=BUSY_DETAIL)
+
+    _register_job(job)
+    return {"job_id": job.job_id}
 
 
 @app.get("/api/progress/{job_id}")
@@ -361,45 +463,22 @@ async def progress(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
 
-    job_dir = DOWNLOAD_DIR / job_id
-    job_dir.mkdir(parents=True, exist_ok=True)
+    if job.status != "pending":
+        raise HTTPException(status_code=409, detail="Job has already been started.")
 
     async def event_stream() -> AsyncIterator[str]:
-        global _active_jobs
-
-        # Read the credentials once, then clear them from memory.
-        cid, csec = job.client_id, job.client_secret
-        job.client_id = ""
-        job.client_secret = ""
-
-        # Atomic concurrency check + increment under the lock
-        async with _active_jobs_lock:
-            if _active_jobs >= MAX_CONCURRENT_JOBS:
-                yield "data: ERROR: Server busy — max concurrent downloads reached. Please try again.\n\n"
-                return
-            _active_jobs += 1
+        if not await _try_acquire_slot():
+            yield "data: ERROR: Server busy — max concurrent downloads reached. Please try again.\n\n"
+            return
 
         try:
-            async for line in _run_spotdl(
-                job.urls, job_dir, job.format, job.bitrate, job.structured, job.audio_provider, cid, csec
-            ):
+            async for line in _execute_job(job):
                 yield f"data: {line}\n\n"
-
-            music_files = _find_music_files(job_dir, job.format, job.structured)
-            if not music_files:
-                yield "data: ERROR: No tracks were downloaded.\n\n"
-                return
-
-            job.zip_filename = _build_zip_filename(music_files, job.urls)
-            _create_zip(music_files, job_dir, job_dir / "tracks.zip")
-
-            track_names = ";;".join(f.stem for f in sorted(music_files, key=lambda p: p.name))
-            yield f"data: DONE:{len(music_files)}|{track_names}\n\n"
+            yield f"data: DONE:{len(job.tracks)}|{';;'.join(job.tracks)}\n\n"
         except Exception as e:
             yield f"data: ERROR: {e}\n\n"
         finally:
-            async with _active_jobs_lock:
-                _active_jobs -= 1
+            await _release_slot()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -446,3 +525,90 @@ async def cleanup(job_id: str):
     """Clean up a finished job's files."""
     _cleanup_job(job_id)
     return {"status": "cleaned"}
+
+
+# --- External API (/api/v1) for other apps ---
+# Jobs start immediately in the background; callers poll for status, then fetch the file.
+
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _job_status(job: Job) -> dict:
+    return {
+        "job_id": job.job_id,
+        "status": job.status,
+        "urls": job.urls,
+        "format": job.format,
+        "total": job.total,
+        "completed": job.completed,
+        "tracks": job.tracks,
+        "error": job.error or None,
+        "filename": _result_filename(job) if job.status == "done" else None,
+        "file_url": f"/api/v1/jobs/{job.job_id}/file" if job.status == "done" else None,
+    }
+
+
+def _result_filename(job: Job) -> str:
+    result = Path(job.result_file)
+    return result.name if result.suffix != ".zip" else (job.zip_filename or "spotify_tracks.zip")
+
+
+def _get_api_job(job_id: str) -> Job:
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    return job
+
+
+async def _run_background_job(job: Job) -> None:
+    try:
+        async for _ in _execute_job(job):
+            pass
+    except Exception:
+        logger.exception(f"API job {job.job_id} failed")
+    finally:
+        await _release_slot()
+
+
+@app.post("/api/v1/jobs", status_code=202, dependencies=[Depends(_require_api_key)])
+async def api_create_job(req: DownloadRequest):
+    """Validate the request and start downloading in the background."""
+    job = _build_job(req)
+    if not await _try_acquire_slot():
+        raise HTTPException(status_code=503, detail=BUSY_DETAIL)
+
+    _register_job(job)
+    job.status = "running"
+    task = asyncio.create_task(_run_background_job(job))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return _job_status(job)
+
+
+@app.get("/api/v1/jobs/{job_id}", dependencies=[Depends(_require_api_key)])
+async def api_get_job(job_id: str):
+    return _job_status(_get_api_job(job_id))
+
+
+@app.get("/api/v1/jobs/{job_id}/file", dependencies=[Depends(_require_api_key)])
+async def api_get_file(job_id: str):
+    """Return the single audio file, or a zip when the job produced several tracks."""
+    job = _get_api_job(job_id)
+    if job.status != "done":
+        raise HTTPException(status_code=409, detail=f"Job is not finished (status: {job.status}).")
+
+    path = DOWNLOAD_DIR / job_id / job.result_file
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File no longer exists.")
+
+    media_type = "application/zip" if path.suffix == ".zip" else f"audio/{'mpeg' if job.format == 'mp3' else job.format}"
+    return FileResponse(path, media_type=media_type, filename=_result_filename(job))
+
+
+@app.delete("/api/v1/jobs/{job_id}", dependencies=[Depends(_require_api_key)])
+async def api_delete_job(job_id: str):
+    job = _get_api_job(job_id)
+    if job.status == "running":
+        raise HTTPException(status_code=409, detail="Job is still running.")
+    _cleanup_job(job_id)
+    return {"status": "deleted"}

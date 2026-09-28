@@ -1,0 +1,38 @@
+version: 2
+
+updates:
+  # Python packages. Checked daily because YouTube changes regularly break yt-dlp,
+  # and fixes usually ship within days.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: daily
+    groups:
+      # The download engine gets its own PRs so a fix is never held up by unrelated upgrades.
+      # Everything else is batched into one PR.
+      app-dependencies:
+        patterns: ["*"]
+        exclude-patterns: ["yt-dlp", "spotdl"]
+    commit-message:
+      prefix: deps
+
+  # Base images and binaries in the Dockerfile (python, ffmpeg, deno)
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      docker-images:
+        patterns: ["*"]
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci

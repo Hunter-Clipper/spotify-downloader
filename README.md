@@ -203,6 +203,71 @@ docker compose up -d
 
 <br>
 
+## REST API
+
+Other apps can trigger downloads through `/api/v1`. Downloads run in the background — create a job, poll its status, then fetch the file.
+
+**Enable it** by setting `API_KEY` on the container (e.g. `-e API_KEY=$(openssl rand -hex 32)`). Every request must include the key as `X-API-Key: <key>` or `Authorization: Bearer <key>`. With no `API_KEY` set, all `/api/v1` endpoints return `503`.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/jobs` | Start a download. Returns `202` with the job status |
+| `GET` | `/api/v1/jobs/{job_id}` | Job status: `running`, `done`, or `failed` |
+| `GET` | `/api/v1/jobs/{job_id}/file` | The result — the audio file for a single track, a ZIP for multiple tracks |
+| `DELETE` | `/api/v1/jobs/{job_id}` | Delete a finished job's files early |
+
+**Request body** for `POST /api/v1/jobs` (all fields optional except a URL):
+
+```json
+{
+  "url": "https://open.spotify.com/track/...",
+  "urls": ["https://open.spotify.com/album/...", "https://open.spotify.com/playlist/..."],
+  "format": "mp3",
+  "bitrate": "320k",
+  "structured": false,
+  "audio_provider": "youtube-music",
+  "client_id": "",
+  "client_secret": ""
+}
+```
+
+**Status response:**
+
+```json
+{
+  "job_id": "93f38236-37fa-42ab-ba79-220117ee3046",
+  "status": "done",
+  "urls": ["https://open.spotify.com/track/..."],
+  "format": "mp3",
+  "total": 1,
+  "completed": 1,
+  "tracks": ["Rick Astley - Never Gonna Give You Up"],
+  "error": null,
+  "filename": "Rick Astley - Never Gonna Give You Up.mp3",
+  "file_url": "/api/v1/jobs/93f38236-37fa-42ab-ba79-220117ee3046/file"
+}
+```
+
+**Example:**
+
+```bash
+KEY=your_api_key
+JOB=$(curl -s -X POST http://localhost:8000/api/v1/jobs \
+  -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"url": "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"}' | jq -r .job_id)
+
+# Poll until done
+while [ "$(curl -s -H "X-API-Key: $KEY" http://localhost:8000/api/v1/jobs/$JOB | jq -r .status)" = "running" ]; do sleep 3; done
+
+curl -OJ -H "X-API-Key: $KEY" http://localhost:8000/api/v1/jobs/$JOB/file
+```
+
+**Errors:** `400` invalid URL/option · `401` bad API key · `404` unknown or expired job · `409` job not finished (file) or still running (delete) · `503` API disabled or server at the concurrent download limit (retry later).
+
+Finished jobs are purged 30 minutes after they complete. API requests share the `MAX_CONCURRENT_JOBS` limit with the web UI but are not subject to the per-IP rate limit.
+
+<br>
+
 ## Configuration
 
 All settings are configured via environment variables:
@@ -212,6 +277,7 @@ All settings are configured via environment variables:
 | `SPOTIFY_CLIENT_ID` | Your Spotify API Client ID | _(shared/rate-limited)_ |
 | `SPOTIFY_CLIENT_SECRET` | Your Spotify API Client Secret | _(shared/rate-limited)_ |
 | `DOWNLOAD_DIR` | Path inside the container where ZIPs are written | `/data/downloads` |
+| `API_KEY` | Enables the [REST API](#rest-api) for other apps; callers must send this key | _(API disabled)_ |
 
 Internal defaults (configurable in `app/main.py`):
 
@@ -228,8 +294,9 @@ Internal defaults (configurable in `app/main.py`):
 ```
 spotify-downloader/
 ├── .github/
+│   ├── dependabot.yml           # Automated dependency update PRs (yt-dlp/spotdl checked daily)
 │   └── workflows/
-│       └── docker-publish.yml   # CI/CD: build & push to Docker Hub on push to main
+│       └── docker-publish.yml   # CI/CD: build & push to Docker Hub, sync Hub README; build-only check on PRs
 ├── app/
 │   ├── __init__.py
 │   └── main.py              # FastAPI backend, job manager, purge loop
@@ -257,6 +324,7 @@ read_only: true                       # Immutable root filesystem
 cap_drop: [ALL]                       # All capabilities dropped
 cap_add: [NET_BIND_SERVICE]           # Only what's needed
 tmpfs: [/tmp:noexec,size=2G]          # Ephemeral, non-executable temp
+tmpfs: [/home/appuser:uid=999,...]    # Writable home for spotdl config + yt-dlp/Deno caches
 ```
 
 <br>
@@ -278,6 +346,15 @@ tmpfs: [/tmp:noexec,size=2G]          # Ephemeral, non-executable temp
 <br>
 
 ## Changelog
+
+### v2.3.0
+- **New:** REST API (`/api/v1/jobs`) so other apps can trigger downloads — background jobs with status polling, direct audio file (single track) or ZIP delivery, protected by the `API_KEY` env var. See [REST API](#rest-api).
+- **Fix:** Long-running downloads are no longer purged mid-download; jobs now expire 30 minutes after they finish.
+- **Improvement:** spotdl failures now report spotdl's last output line instead of a generic error.
+- **Fix:** Downloads failing with `YT-DLP download error` / `HTTP Error 403` — added the Deno JS runtime (2.9.7) to the image, which yt-dlp now requires to solve YouTube challenges, and upgraded yt-dlp 2026.3.17 → 2026.8.19.
+- **Fix:** `docker-compose.yml` with `read_only: true` crashed spotdl on first run (`Read-only file system: .../config.json`). `/home/appuser` is now a tmpfs owned by `appuser`, whose UID/GID is pinned to 999.
+- **New:** Dependabot opens PRs for new dependency versions — Python packages daily (yt-dlp and spotdl in their own PRs), Docker base images and GitHub Actions weekly. Pull requests now get a build-only CI check before merging.
+- **New:** Release tags publish versioned Docker images (e.g. `pbdweller/spotify-downloader:2.3.0`), and the Docker Hub overview now syncs automatically from this README.
 
 ### v2.2.2
 - **Improvement:** Simplified backend and frontend code — deduplicated repeated validation, file-globbing, and log-parsing logic in `app/main.py`, and collapsed duplicated fetch/status and SSE-handling blocks in the frontend into named helpers. No behavior changes.
@@ -328,7 +405,7 @@ tmpfs: [/tmp:noexec,size=2G]          # Ephemeral, non-executable temp
 | Component | Technology |
 |-----------|-----------|
 | **Backend** | Python 3.12 + FastAPI |
-| **Download Engine** | spotdl + yt-dlp + ffmpeg |
+| **Download Engine** | spotdl + yt-dlp + Deno + ffmpeg |
 | **Frontend** | Vanilla HTML/CSS/JS |
 | **Progress** | Server-Sent Events (SSE) |
 | **Encryption** | Web Crypto API (AES-256-GCM) |
