@@ -1,17 +1,17 @@
 # ---- Stage 1: static ffmpeg binaries ----
-FROM mwader/static-ffmpeg:8.1 AS ffmpeg
+FROM mwader/static-ffmpeg:9.0 AS ffmpeg
 
 # ---- Stage 1b: Deno — yt-dlp needs a JS runtime to solve YouTube challenges ----
 FROM denoland/deno:bin-2.9.7 AS deno
 
 # ---- Stage 2: install Python deps ----
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --no-compile --prefix=/install -r requirements.txt
 
 # ---- Stage 3: minimal runtime ----
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
