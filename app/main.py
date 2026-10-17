@@ -67,7 +67,7 @@ LOSSLESS_FORMATS = {"flac", "wav"}
 # spotdl output patterns used to turn raw log lines into progress events
 FOUND_SONGS_RE = re.compile(r"Found (\d+) songs?", re.IGNORECASE)
 DOWNLOADING_RE = re.compile(r"Downloading\s+", re.IGNORECASE)
-TRACK_DONE_RE = re.compile(r"Downloaded\s+\"|Skipping.*already exists", re.IGNORECASE)
+TRACK_DONE_RE = re.compile(r"Downloaded\s+|Skipping.*already exists", re.IGNORECASE)
 
 
 # --- Job state ---
@@ -96,8 +96,15 @@ class Job:
 _jobs: dict[str, Job] = {}
 _active_jobs: int = 0
 _active_jobs_lock = asyncio.Lock()
+_rate_limits_lock = asyncio.Lock()
 _rate_limits: dict[str, list[float]] = {}
 
+
+# --- Shared httpx client ---
+# A single AsyncClient is shared across all requests so the server avoids
+# repeatedly creating/destroying connections (which caused socket exhaustion
+# under load). It is created at import time and closed in lifespan().
+_HTTPX_CLIENT = httpx.AsyncClient(timeout=5.0)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -111,6 +118,7 @@ async def lifespan(app: FastAPI):
     purge_task = asyncio.create_task(_purge_loop())
     yield
     purge_task.cancel()
+    await _HTTPX_CLIENT.aclose()
 
 
 app = FastAPI(title="Spotify Downloader", lifespan=lifespan)
@@ -145,18 +153,19 @@ def _cleanup_job(job_id: str) -> None:
     _jobs.pop(job_id, None)
 
 
-def _check_rate_limit(ip: str) -> None:
+async def _check_rate_limit(ip: str) -> None:
     """Enforce per-IP rate limiting. Raises HTTPException if exceeded."""
     now = time.time()
-    timestamps = [t for t in _rate_limits.get(ip, []) if now - t < RATE_LIMIT_WINDOW]
-    _rate_limits[ip] = timestamps
+    async with _rate_limits_lock:
+        timestamps = [t for t in _rate_limits.get(ip, []) if now - t < RATE_LIMIT_WINDOW]
+        _rate_limits[ip] = timestamps
 
-    if len(timestamps) >= RATE_LIMIT_MAX_REQUESTS:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Rate limit exceeded. Max {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW}s.",
-        )
-    timestamps.append(now)
+        if len(timestamps) >= RATE_LIMIT_MAX_REQUESTS:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded. Max {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW}s.",
+            )
+        timestamps.append(now)
 
 
 async def _try_acquire_slot() -> bool:
@@ -203,10 +212,18 @@ class PreviewRequest(BaseModel):
 
 
 def _validate_spotify_url(url: str) -> str:
-    """Validate that the URL is a Spotify track, album, or playlist link."""
+    """Validate that the URL is a Spotify track, album, or playlist link.
+    Accepts both https://open.spotify.com/ and spotify: scheme links.
+    """
     url = url.strip()
-    is_spotify = url.startswith(("https://open.spotify.com/", "http://open.spotify.com/"))
-    has_content = any(part in url for part in ("/track/", "/album/", "/playlist/"))
+    is_spotify = (
+        url.startswith(("https://open.spotify.com/", "http://open.spotify.com/"))
+        or url.startswith("spotify:")
+    )
+    has_content = any(
+        part in url
+        for part in ("/track/", "/album/", "/playlist/", "track:", "album:", "playlist:")
+    )
     if not is_spotify or not has_content:
         raise ValueError("Invalid Spotify URL. Must be a track, album, or playlist link.")
     return url
@@ -224,12 +241,14 @@ def _validate_choice(value: str, allowed: set[str], label: str) -> str:
 
 
 def _spotify_url_type(url: str, default: str = "download") -> str:
-    """Classify a Spotify URL as a track, album, or playlist link."""
-    if "/track/" in url:
+    """Classify a Spotify URL as a track, album, or playlist link.
+    Handles both https://open.spotify.com/ and spotify: scheme links.
+    """
+    if "/track/" in url or "track:" in url:
         return "track"
-    if "/album/" in url:
+    if "/album/" in url or "album:" in url:
         return "album"
-    if "/playlist/" in url:
+    if "/playlist/" in url or "playlist:" in url:
         return "playlist"
     return default
 
@@ -445,14 +464,23 @@ async def _execute_job(job: Job) -> AsyncIterator[str]:
 @app.post("/api/download")
 async def download(req: DownloadRequest, request: Request):
     """Start a download job and return the job ID."""
-    _check_rate_limit(request.client.host)
+    # Validate first: invalid requests must NOT consume the rate limit
     job = _build_job(req)
 
-    # Optimistic pre-check (not under lock — enforced atomically in the SSE stream)
-    if _active_jobs >= MAX_CONCURRENT_JOBS:
+    # Guard against missing client host (e.g. WebSocket connections, proxies)
+    client_host = request.client.host if request.client and request.client.host else "unknown"
+
+    # Rate-limit AFTER validation so invalid requests cannot exhaust the limit
+    await _check_rate_limit(client_host)
+
+    # Acquire a slot atomically; the job starts immediately (not when the SSE
+    # stream opens) so web jobs are not deferred until the client connects.
+    if not await _try_acquire_slot():
         raise HTTPException(status_code=503, detail=BUSY_DETAIL)
 
     _register_job(job)
+    job.status = "running"
+    asyncio.create_task(_run_background_job(job))
     return {"job_id": job.job_id}
 
 
@@ -491,10 +519,9 @@ async def preview(req: PreviewRequest):
         raise HTTPException(status_code=400, detail="Invalid Spotify URL.")
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get("https://open.spotify.com/oembed", params={"url": url})
-            resp.raise_for_status()
-            data = resp.json()
+        resp = await _HTTPX_CLIENT.get("https://open.spotify.com/oembed", params={"url": url})
+        resp.raise_for_status()
+        data = resp.json()
     except Exception:
         raise HTTPException(status_code=502, detail="Could not fetch preview from Spotify.")
 
