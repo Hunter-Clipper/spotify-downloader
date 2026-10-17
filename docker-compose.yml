@@ -7,6 +7,11 @@ services:
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
       - API_KEY=${API_KEY:-}
+    # Downloads volume is created root-owned by Docker. After container start,
+    # relabel ownership to appuser:appuser so downloads are not lost on restart.
+    # Fix: add `user: root` to the service and chown the volume after startup,
+    # OR ensure the host directory is owned by appuser:appuser before `docker compose up`.
+    # See issue #21.
     volumes:
       - downloads:/data/downloads
     restart: unless-stopped
