@@ -4,25 +4,11 @@
 services:
   spotify-downloader:
     build: .
-    ports:
-      - "8000:80"
-    environment:
-      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
-      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
-      - API_KEY=${API_KEY:-}
-    # Downloads volume ownership (issue #21): the named volume is created
-    # root-owned by Docker. The container runs as appuser (uid 999), so
-    # /data/downloads must be writable by appuser or spotdl falls back to /tmp
-    # and downloads are lost on restart.
-    #
-    # Fix: run the container with `user: root` for the entrypoint, then drop
-    # privileges to appuser for the app itself. If running with --privileged
-    # or root is not acceptable, pre-chown the host directory backing the
-    # volume to appuser:appuser and remove the user: root override.
+    # Issue #21: the `downloads` named volume is created root-owned by Docker,
+    # while the app runs as appuser (uid 999). The image entrypoint therefore
+    # starts as root, chowns /data/downloads, then drops to appuser before
+    # exec'ing uvicorn — so the app itself never runs as root.
     user: root
-    entrypoint: >
-      sh -c "chown -R appuser:appuser /data/downloads &&
-             exec uvicorn app.main:app --host 0.0.0.0 --port 80"
     ports:
       - "8000:80"
     environment:
@@ -43,7 +29,14 @@ services:
     cap_drop:
       - ALL
     cap_add:
+      # uvicorn binds port 80 inside the container
       - NET_BIND_SERVICE
+      # The entrypoint needs these to (a) chown the root-owned volume and
+      # (b) drop to appuser. The kernel clears the whole capability set on the
+      # root -> appuser transition, so none of them reach the running app.
+      - CHOWN
+      - SETUID
+      - SETGID
 
 volumes:
   downloads:

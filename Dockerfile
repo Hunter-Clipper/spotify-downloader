@@ -34,6 +34,10 @@ ENV HOME=/home/appuser
 WORKDIR /app
 COPY --chown=appuser:appuser . .
 
+# Fixes issue #21: chown the (possibly root-owned) downloads volume at startup,
+# then drop back to appuser. Invoked via /bin/sh so the script needs no exec bit.
+ENTRYPOINT ["/bin/sh", "/app/docker-entrypoint.sh"]
+
 USER appuser
 
 EXPOSE 80
