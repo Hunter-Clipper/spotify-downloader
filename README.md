@@ -347,6 +347,15 @@ tmpfs: [/home/appuser:uid=999,...]    # Writable home for spotdl config + yt-dlp
 
 ## Changelog
 
+### v2.4.2
+
+- **Fix (#21):** The `downloads` named volume is now chowned to `appuser` at container start. A pre-existing root-owned volume made the writability probe fail, so downloads silently fell back to `/tmp` and were lost on restart. `docker-compose.yml` also declared `ports` and `environment` twice, which stopped the file parsing at all.
+- **Fix (#14):** `/api/v1/jobs/{id}/file` maps each output format to its media type explicitly instead of deriving it from the format name. WAV previously produced the unregistered `audio/wav`; it is now `audio/vnd.wave`.
+- **Fix:** The web UI progress stream was broken — `/api/progress/{id}` always returned `409` because jobs are started by `/api/download` and so are never `pending`. It now subscribes to the running job and replays progress emitted before the client attached.
+- **Fix:** `spotify:` URIs are no longer filtered out by the frontend link parser, so the `spotify:` support added in v2.4.1 now works from the web UI.
+- **Fix:** Background jobs are held by a strong reference, so asyncio can no longer garbage-collect a download mid-flight.
+- **Fix:** Attaching to the progress stream no longer consumes a second concurrency slot, which had halved the effective `MAX_CONCURRENT_JOBS`.
+
 ### v2.4.0
 
 - **Fix:** `_check_rate_limit` race condition under concurrency — now properly raises "Rate limit exceeded" on the 4th concurrent request.
@@ -357,6 +366,16 @@ tmpfs: [/home/appuser:uid=999,...]    # Writable home for spotdl config + yt-dlp
 - **Fix:** Invalid requests no longer exhaust the rate limit — validation happens before the rate-limit check.
 - **Fix:** Created shared `httpx.AsyncClient` at import time to avoid socket exhaustion under load.
 - **Fix:** Docker `docker-compose.yml` updated to handle the `downloads` volume ownership correctly.
+
+### v2.4.1
+
+- **Fix:** All v2.4.0 bug fixes carried forward
+- **Fix:** Fixed `TRACK_DONE_RE` regex to properly parse spotdl progress output
+- **Fix:** Added `spotify:` scheme URL support for track, album, and playlist links
+- **Fix:** Fixed rate limit enforcement race condition under concurrent requests
+- **Fix:** Improved `/api/download` request validation and connection host handling
+- **Fix:** Added shared `httpx.AsyncClient` to prevent socket exhaustion
+- **Fix:** Fixed Docker volume ownership for named downloads volume
 
 ### v2.3.1
 - **Improvement:** Upgraded the base image to Python 3.14 (from 3.12) and ffmpeg to 9.0 (from 8.1).
