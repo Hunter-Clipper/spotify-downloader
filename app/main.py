@@ -61,6 +61,9 @@ ALLOWED_FORMATS = {"mp3", "flac", "wav", "ogg"}
 ALLOWED_BITRATES = {"128k", "192k", "256k", "320k"}
 ALLOWED_AUDIO_PROVIDERS = {"youtube-music", "youtube", "piped"}
 
+# Statuses after which a job will never emit more progress.
+TERMINAL_STATUSES = {"done", "failed"}
+
 # Issue #14: map output formats to IANA-registered media types explicitly.
 # Deriving the type from the format name produced `audio/wav` for WAV, which is
 # not registered — the registered type is `audio/vnd.wave`. (`audio/wav` and
@@ -104,6 +107,11 @@ class Job:
     error: str = ""
     result_file: str = ""               # Path relative to the job dir served by /api/v1
     finished_at: float = 0.0
+    # Progress fan-out for /api/progress. `events` is the replay backlog for
+    # clients that attach after the job has already started emitting, and each
+    # queue in `subscribers` receives subsequent lines, then None once terminal.
+    events: list[str] = field(default_factory=list)
+    subscribers: list[asyncio.Queue] = field(default_factory=list)
 
 
 _jobs: dict[str, Job] = {}
@@ -195,6 +203,26 @@ async def _release_slot() -> None:
     global _active_jobs
     async with _active_jobs_lock:
         _active_jobs -= 1
+
+
+def _publish(job: Job, event: str) -> None:
+    """Record a progress line and fan it out to every attached SSE subscriber."""
+    job.events.append(event)
+    for queue in list(job.subscribers):
+        queue.put_nowait(event)
+
+
+def _end_subscribers(job: Job) -> None:
+    """Wake every SSE subscriber with the end-of-stream sentinel."""
+    for queue in list(job.subscribers):
+        queue.put_nowait(None)
+
+
+def _terminal_event(job: Job) -> str:
+    """The final SSE frame for a job that has already finished."""
+    if job.status == "done":
+        return f"data: DONE:{len(job.tracks)}|{';;'.join(job.tracks)}\n\n"
+    return f"data: ERROR: {job.error or 'Download failed.'}\n\n"
 
 
 def _require_api_key(
@@ -430,6 +458,19 @@ def _register_job(job: Job) -> None:
     _jobs[job.job_id] = job
 
 
+# Strong references to in-flight background jobs. asyncio only keeps weak
+# references to tasks, so without this a job can be garbage collected
+# mid-download (the same reason lifespan() holds on to the purge task).
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_background_job(job: Job) -> None:
+    """Run a job in the background, keeping a reference so it is not GC'd."""
+    task = asyncio.create_task(_run_background_job(job))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
 BUSY_DETAIL = f"Server busy — max {MAX_CONCURRENT_JOBS} concurrent downloads. Please try again shortly."
 
 
@@ -502,33 +543,47 @@ async def download(req: DownloadRequest, request: Request):
 
     _register_job(job)
     job.status = "running"
-    asyncio.create_task(_run_background_job(job))
+    _spawn_background_job(job)
     return {"job_id": job.job_id}
 
 
 @app.get("/api/progress/{job_id}")
 async def progress(job_id: str):
-    """SSE endpoint that runs spotdl and streams structured progress events."""
+    """SSE endpoint streaming progress for a job already started by /api/download.
+
+    The job itself runs in the background (started by /api/download), so this
+    endpoint subscribes to its progress instead of running it, and therefore
+    does not acquire a download slot of its own.
+    """
     job = _jobs.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
 
-    if job.status != "pending":
-        raise HTTPException(status_code=409, detail="Job has already been started.")
-
     async def event_stream() -> AsyncIterator[str]:
-        if not await _try_acquire_slot():
-            yield "data: ERROR: Server busy — max concurrent downloads reached. Please try again.\n\n"
-            return
+        # Subscribe before snapshotting the backlog, with no await in between,
+        # so a client that attaches mid-job can neither miss nor duplicate an
+        # event: everything already emitted is replayed, then the live queue
+        # takes over.
+        queue: asyncio.Queue = asyncio.Queue()
+        job.subscribers.append(queue)
+        backlog = list(job.events)
+        already_finished = job.status in TERMINAL_STATUSES
 
         try:
-            async for line in _execute_job(job):
-                yield f"data: {line}\n\n"
-            yield f"data: DONE:{len(job.tracks)}|{';;'.join(job.tracks)}\n\n"
-        except Exception as e:
-            yield f"data: ERROR: {e}\n\n"
+            for event in backlog:
+                yield f"data: {event}\n\n"
+            if already_finished:
+                yield _terminal_event(job)
+                return
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                yield f"data: {event}\n\n"
+            yield _terminal_event(job)
         finally:
-            await _release_slot()
+            if queue in job.subscribers:
+                job.subscribers.remove(queue)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -579,8 +634,6 @@ async def cleanup(job_id: str):
 # --- External API (/api/v1) for other apps ---
 # Jobs start immediately in the background; callers poll for status, then fetch the file.
 
-_background_tasks: set[asyncio.Task] = set()
-
 
 def _job_status(job: Job) -> dict:
     return {
@@ -610,12 +663,16 @@ def _get_api_job(job_id: str) -> Job:
 
 
 async def _run_background_job(job: Job) -> None:
+    """Run a job to completion, fanning its progress out to SSE subscribers."""
     try:
-        async for _ in _execute_job(job):
-            pass
+        async for line in _execute_job(job):
+            _publish(job, line)
     except Exception:
-        logger.exception(f"API job {job.job_id} failed")
+        # _execute_job records the failure on the job itself; the terminal SSE
+        # frame is derived from job.status/job.error by _terminal_event.
+        logger.exception(f"Job {job.job_id} failed")
     finally:
+        _end_subscribers(job)
         await _release_slot()
 
 
@@ -628,9 +685,7 @@ async def api_create_job(req: DownloadRequest):
 
     _register_job(job)
     job.status = "running"
-    task = asyncio.create_task(_run_background_job(job))
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
+    _spawn_background_job(job)
     return _job_status(job)
 
 

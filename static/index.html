@@ -1402,7 +1402,7 @@
         function getUrls() {
             return urlInput.value.split('\n')
                 .map(s => s.trim())
-                .filter(s => s.length > 0 && s.includes('open.spotify.com'));
+                .filter(s => s.length > 0 && (s.includes('open.spotify.com') || s.startsWith('spotify:')));
         }
 
         function updateLinkCount() {
