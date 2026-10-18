@@ -306,30 +306,39 @@ async def _run_spotdl(
     tracks_done = 0
     last_line = ""
 
-    async for line in process.stdout:
-        decoded = line.decode("utf-8", errors="replace").strip()
-        if not decoded:
-            continue
+    try:
+        async for line in process.stdout:
+            decoded = line.decode("utf-8", errors="replace").strip()
+            if not decoded:
+                continue
 
-        found_match = FOUND_SONGS_RE.search(decoded)
-        if found_match:
-            track_count = int(found_match.group(1))
-            yield f"TOTAL:{track_count}"
+            found_match = FOUND_SONGS_RE.search(decoded)
+            if found_match:
+                track_count = int(found_match.group(1))
+                yield f"TOTAL:{track_count}"
 
-        if DOWNLOADING_RE.search(decoded) and "song" not in decoded.lower():
-            yield f"TRACK_START:{decoded}"
+            if DOWNLOADING_RE.search(decoded) and "song" not in decoded.lower():
+                yield f"TRACK_START:{decoded}"
 
-        if TRACK_DONE_RE.search(decoded):
-            tracks_done += 1
-            yield f"TRACK_DONE:{tracks_done}/{track_count or '?'} {decoded}"
+            if TRACK_DONE_RE.search(decoded):
+                tracks_done += 1
+                yield f"TRACK_DONE:{tracks_done}/{track_count or '?'} {decoded}"
 
-        last_line = decoded
-        yield f"LOG:{decoded}"
-
-    await process.wait()
+            last_line = decoded
+            yield f"LOG:{decoded}"
+    finally:
+        await process.wait()
 
     if process.returncode != 0:
-        raise RuntimeError(f"spotdl exited with an error: {last_line}" if last_line else "spotdl exited with an error")
+        error_msg = last_line or "spotdl exited with an error"
+        # Handle KeyError: 'uri' from spotipyfree (Spotify API response format change)
+        if "KeyError: 'uri'" in error_msg:
+            raise RuntimeError(
+                "Spotify API response missing 'uri' field — spotdl could not resolve the track. "
+                "The Spotify API may have changed its response format. "
+                "Try using a different Spotify URL (e.g. spotify:track:...) or contact support."
+            ) from None
+        raise RuntimeError(f"spotdl exited with an error: {error_msg}") from None
 
 
 def _build_zip_filename(music_files: list[Path], urls: list[str]) -> str:
