@@ -61,6 +61,19 @@ ALLOWED_FORMATS = {"mp3", "flac", "wav", "ogg"}
 ALLOWED_BITRATES = {"128k", "192k", "256k", "320k"}
 ALLOWED_AUDIO_PROVIDERS = {"youtube-music", "youtube", "piped"}
 
+# Issue #14: map output formats to IANA-registered media types explicitly.
+# Deriving the type from the format name produced `audio/wav` for WAV, which is
+# not registered — the registered type is `audio/vnd.wave`. (`audio/wav` and
+# `audio/x-wav` are common de-facto aliases if a client rejects the registered
+# type.) mp3/flac/ogg already matched their registrations.
+FORMAT_MEDIA_TYPES = {
+    "mp3": "audio/mpeg",        # RFC 3003
+    "flac": "audio/flac",       # RFC 9639
+    "wav": "audio/vnd.wave",
+    "ogg": "audio/ogg",         # RFC 5334
+}
+DEFAULT_MEDIA_TYPE = "application/octet-stream"
+
 # Formats that ignore --bitrate
 LOSSLESS_FORMATS = {"flac", "wav"}
 
@@ -637,7 +650,11 @@ async def api_get_file(job_id: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="File no longer exists.")
 
-    media_type = "application/zip" if path.suffix == ".zip" else f"audio/{'mpeg' if job.format == 'mp3' else job.format}"
+    media_type = (
+        "application/zip"
+        if path.suffix == ".zip"
+        else FORMAT_MEDIA_TYPES.get(job.format, DEFAULT_MEDIA_TYPE)
+    )
     return FileResponse(path, media_type=media_type, filename=_result_filename(job))
 
 
