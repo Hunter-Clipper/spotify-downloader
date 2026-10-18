@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 Hunter-Clipper
+
 services:
   spotify-downloader:
     build: .
@@ -7,11 +10,25 @@ services:
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
       - API_KEY=${API_KEY:-}
-    # Downloads volume is created root-owned by Docker. After container start,
-    # relabel ownership to appuser:appuser so downloads are not lost on restart.
-    # Fix: add `user: root` to the service and chown the volume after startup,
-    # OR ensure the host directory is owned by appuser:appuser before `docker compose up`.
-    # See issue #21.
+    # Downloads volume ownership (issue #21): the named volume is created
+    # root-owned by Docker. The container runs as appuser (uid 999), so
+    # /data/downloads must be writable by appuser or spotdl falls back to /tmp
+    # and downloads are lost on restart.
+    #
+    # Fix: run the container with `user: root` for the entrypoint, then drop
+    # privileges to appuser for the app itself. If running with --privileged
+    # or root is not acceptable, pre-chown the host directory backing the
+    # volume to appuser:appuser and remove the user: root override.
+    user: root
+    entrypoint: >
+      sh -c "chown -R appuser:appuser /data/downloads &&
+             exec uvicorn app.main:app --host 0.0.0.0 --port 80"
+    ports:
+      - "8000:80"
+    environment:
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
+      - API_KEY=${API_KEY:-}
     volumes:
       - downloads:/data/downloads
     restart: unless-stopped
