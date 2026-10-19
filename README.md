@@ -356,6 +356,16 @@ tmpfs: [/home/appuser:uid=999,...]    # Writable home for spotdl config + yt-dlp
 - **Fix:** Background jobs are held by a strong reference, so asyncio can no longer garbage-collect a download mid-flight.
 - **Fix:** Attaching to the progress stream no longer consumes a second concurrency slot, which had halved the effective `MAX_CONCURRENT_JOBS`.
 
+### v2.4.1
+
+- **Fix:** All v2.4.0 bug fixes carried forward
+- **Fix:** Fixed `TRACK_DONE_RE` regex to properly parse spotdl progress output
+- **Fix:** Added `spotify:` scheme URL support for track, album, and playlist links
+- **Fix:** Fixed rate limit enforcement race condition under concurrent requests
+- **Fix:** Improved `/api/download` request validation and connection host handling
+- **Fix:** Added shared `httpx.AsyncClient` to prevent socket exhaustion
+- **Fix:** Fixed Docker volume ownership for named downloads volume
+
 ### v2.4.0
 
 - **Fix:** `_check_rate_limit` race condition under concurrency — now properly raises "Rate limit exceeded" on the 4th concurrent request.
@@ -366,16 +376,6 @@ tmpfs: [/home/appuser:uid=999,...]    # Writable home for spotdl config + yt-dlp
 - **Fix:** Invalid requests no longer exhaust the rate limit — validation happens before the rate-limit check.
 - **Fix:** Created shared `httpx.AsyncClient` at import time to avoid socket exhaustion under load.
 - **Fix:** Docker `docker-compose.yml` updated to handle the `downloads` volume ownership correctly.
-
-### v2.4.1
-
-- **Fix:** All v2.4.0 bug fixes carried forward
-- **Fix:** Fixed `TRACK_DONE_RE` regex to properly parse spotdl progress output
-- **Fix:** Added `spotify:` scheme URL support for track, album, and playlist links
-- **Fix:** Fixed rate limit enforcement race condition under concurrent requests
-- **Fix:** Improved `/api/download` request validation and connection host handling
-- **Fix:** Added shared `httpx.AsyncClient` to prevent socket exhaustion
-- **Fix:** Fixed Docker volume ownership for named downloads volume
 
 ### v2.3.1
 - **Improvement:** Upgraded the base image to Python 3.14 (from 3.12) and ffmpeg to 9.0 (from 8.1).
