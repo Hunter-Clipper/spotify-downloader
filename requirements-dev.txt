@@ -1,0 +1,5 @@
+# Test-only dependencies. Installed in CI by the `test` job; never copied into
+# the runtime image (see .dockerignore).
+-r requirements.txt
+pytest==9.1.1
+pytest-asyncio==1.4.0
