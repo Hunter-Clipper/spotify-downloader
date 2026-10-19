@@ -56,6 +56,13 @@ PURGE_CHECK_INTERVAL = 60           # Check for stale jobs every 60s
 MAX_CONCURRENT_JOBS = 5             # Max simultaneous downloads
 RATE_LIMIT_WINDOW = 60              # Rate limit window in seconds
 RATE_LIMIT_MAX_REQUESTS = 10        # Max download requests per window per IP
+PREVIEW_RATE_LIMIT_MAX_REQUESTS = 30  # Max preview requests per window per IP
+
+# Rate limit buckets. The key is "<bucket>:<client ip>", so the web UI and the
+# REST API share one download budget while previews get their own (the frontend
+# calls preview from a debounced paste/blur handler, so it needs more headroom).
+RATE_LIMIT_BUCKET_DOWNLOAD = "download"
+RATE_LIMIT_BUCKET_PREVIEW = "preview"
 
 ALLOWED_FORMATS = {"mp3", "flac", "wav", "ogg"}
 ALLOWED_BITRATES = {"128k", "192k", "256k", "320k"}
@@ -146,26 +153,32 @@ app = FastAPI(title="Spotify Downloader", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+def _purge_once(now: float) -> None:
+    """Drop expired jobs and stale rate-limit buckets.
+
+    Split out of _purge_loop so the expiry rules can be tested without waiting.
+    """
+    # Never purge a running job; finished jobs expire relative to when they finished.
+    expired = [
+        jid for jid, job in _jobs.items()
+        if job.status != "running" and now - (job.finished_at or job.created_at) > JOB_TTL_SECONDS
+    ]
+    for jid in expired:
+        _cleanup_job(jid)
+
+    stale_keys = [
+        key for key, timestamps in _rate_limits.items()
+        if not any(now - t < RATE_LIMIT_WINDOW for t in timestamps)
+    ]
+    for key in stale_keys:
+        del _rate_limits[key]
+
+
 async def _purge_loop() -> None:
-    """Background task that purges expired jobs and stale rate-limit entries."""
+    """Background task that periodically purges expired jobs and rate limits."""
     while True:
         await asyncio.sleep(PURGE_CHECK_INTERVAL)
-        now = time.time()
-
-        # Never purge a running job; finished jobs expire relative to when they finished.
-        expired = [
-            jid for jid, job in _jobs.items()
-            if job.status != "running" and now - (job.finished_at or job.created_at) > JOB_TTL_SECONDS
-        ]
-        for jid in expired:
-            _cleanup_job(jid)
-
-        stale_ips = [
-            ip for ip, timestamps in _rate_limits.items()
-            if not any(now - t < RATE_LIMIT_WINDOW for t in timestamps)
-        ]
-        for ip in stale_ips:
-            del _rate_limits[ip]
+        _purge_once(time.time())
 
 
 def _cleanup_job(job_id: str) -> None:
@@ -174,19 +187,30 @@ def _cleanup_job(job_id: str) -> None:
     _jobs.pop(job_id, None)
 
 
-async def _check_rate_limit(ip: str) -> None:
-    """Enforce per-IP rate limiting. Raises HTTPException if exceeded."""
+async def _check_rate_limit(bucket: str, ip: str, max_requests: int) -> None:
+    """Enforce per-IP rate limiting for one bucket. Raises HTTPException if exceeded."""
     now = time.time()
+    key = f"{bucket}:{ip}"
     async with _rate_limits_lock:
-        timestamps = [t for t in _rate_limits.get(ip, []) if now - t < RATE_LIMIT_WINDOW]
-        _rate_limits[ip] = timestamps
+        timestamps = [t for t in _rate_limits.get(key, []) if now - t < RATE_LIMIT_WINDOW]
+        _rate_limits[key] = timestamps
 
-        if len(timestamps) >= RATE_LIMIT_MAX_REQUESTS:
+        if len(timestamps) >= max_requests:
             raise HTTPException(
                 status_code=429,
-                detail=f"Rate limit exceeded. Max {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW}s.",
+                detail=f"Rate limit exceeded. Max {max_requests} requests per {RATE_LIMIT_WINDOW}s.",
             )
         timestamps.append(now)
+
+
+def _client_host(request: Request) -> str:
+    """Best-effort client address, used as the rate limit key.
+
+    Falls back to "unknown" for connections with no client (proxies, WebSockets).
+    """
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
 
 
 async def _try_acquire_slot() -> bool:
@@ -252,6 +276,9 @@ class PreviewRequest(BaseModel):
     url: str
 
 
+SPOTIFY_CONTENT_TYPES = ("track", "album", "playlist")
+
+
 def _validate_spotify_url(url: str) -> str:
     """Validate that the URL is a Spotify track, album, or playlist link.
     Accepts both https://open.spotify.com/ and spotify: scheme links.
@@ -262,11 +289,25 @@ def _validate_spotify_url(url: str) -> str:
         or url.startswith("spotify:")
     )
     has_content = any(
-        part in url
-        for part in ("/track/", "/album/", "/playlist/", "track:", "album:", "playlist:")
+        f"/{content_type}/" in url or f"{content_type}:" in url
+        for content_type in SPOTIFY_CONTENT_TYPES
     )
     if not is_spotify or not has_content:
         raise ValueError("Invalid Spotify URL. Must be a track, album, or playlist link.")
+    return url
+
+
+def _normalize_spotify_url(url: str) -> str:
+    """Convert a `spotify:` URI to its https://open.spotify.com/ equivalent.
+
+    Spotify's oEmbed endpoint only accepts the https form, so previews need this
+    even though spotdl accepts either. Anything that is not a track, album or
+    playlist URI is returned unchanged, for the caller to reject.
+    """
+    if url.startswith("spotify:"):
+        parts = url.split(":")
+        if len(parts) >= 3 and parts[1] in SPOTIFY_CONTENT_TYPES:
+            return f"https://open.spotify.com/{parts[1]}/{parts[2]}"
     return url
 
 
@@ -285,12 +326,9 @@ def _spotify_url_type(url: str, default: str = "download") -> str:
     """Classify a Spotify URL as a track, album, or playlist link.
     Handles both https://open.spotify.com/ and spotify: scheme links.
     """
-    if "/track/" in url or "track:" in url:
-        return "track"
-    if "/album/" in url or "album:" in url:
-        return "album"
-    if "/playlist/" in url or "playlist:" in url:
-        return "playlist"
+    for content_type in SPOTIFY_CONTENT_TYPES:
+        if f"/{content_type}/" in url or f"{content_type}:" in url:
+            return content_type
     return default
 
 
@@ -335,6 +373,14 @@ async def _run_spotdl(
     cid = client_id or SPOTIFY_CLIENT_ID
     csec = client_secret or SPOTIFY_CLIENT_SECRET
     if cid and csec:
+        # Issue #24: these land in the spotdl argv, so the secret is readable
+        # from /proc/<pid>/cmdline. procfs only exposes that to a caller with
+        # ptrace permission (same uid or root) — i.e. someone who can already
+        # exec into the container — so this is a documented, accepted
+        # limitation: spotdl reads credentials only from argv or a single fixed
+        # ~/.spotdl/config.json, and up to MAX_CONCURRENT_JOBS jobs with
+        # different credentials run concurrently, so a shared config would race.
+        # See the README security section.
         cmd += ["--client-id", cid, "--client-secret", csec]
 
     process = await asyncio.create_subprocess_exec(
@@ -530,11 +576,12 @@ async def download(req: DownloadRequest, request: Request):
     # Validate first: invalid requests must NOT consume the rate limit
     job = _build_job(req)
 
-    # Guard against missing client host (e.g. WebSocket connections, proxies)
-    client_host = request.client.host if request.client and request.client.host else "unknown"
-
-    # Rate-limit AFTER validation so invalid requests cannot exhaust the limit
-    await _check_rate_limit(client_host)
+    # Rate-limit AFTER validation so invalid requests cannot exhaust the limit.
+    # /api/v1/jobs shares this bucket, so the configured "max requests per
+    # window per IP" means the same thing on both surfaces.
+    await _check_rate_limit(
+        RATE_LIMIT_BUCKET_DOWNLOAD, _client_host(request), RATE_LIMIT_MAX_REQUESTS
+    )
 
     # Acquire a slot atomically; the job starts immediately (not when the SSE
     # stream opens) so web jobs are not deferred until the client connects.
@@ -589,11 +636,16 @@ async def progress(job_id: str):
 
 
 @app.post("/api/preview")
-async def preview(req: PreviewRequest):
+async def preview(req: PreviewRequest, request: Request):
     """Fetch metadata from Spotify's oEmbed API (no auth needed)."""
-    url = req.url.strip()
+    url = _normalize_spotify_url(req.url.strip())
     if not url or "open.spotify.com" not in url:
         raise HTTPException(status_code=400, detail="Invalid Spotify URL.")
+
+    # Rate-limit AFTER validation so invalid URLs cannot exhaust the budget.
+    await _check_rate_limit(
+        RATE_LIMIT_BUCKET_PREVIEW, _client_host(request), PREVIEW_RATE_LIMIT_MAX_REQUESTS
+    )
 
     try:
         resp = await _HTTPX_CLIENT.get("https://open.spotify.com/oembed", params={"url": url})
@@ -622,13 +674,6 @@ async def get_zip(job_id: str):
         media_type="application/zip",
         filename=job.zip_filename if job and job.zip_filename else "spotify_tracks.zip",
     )
-
-
-@app.delete("/api/cleanup/{job_id}")
-async def cleanup(job_id: str):
-    """Clean up a finished job's files."""
-    _cleanup_job(job_id)
-    return {"status": "cleaned"}
 
 
 # --- External API (/api/v1) for other apps ---
@@ -677,9 +722,16 @@ async def _run_background_job(job: Job) -> None:
 
 
 @app.post("/api/v1/jobs", status_code=202, dependencies=[Depends(_require_api_key)])
-async def api_create_job(req: DownloadRequest):
+async def api_create_job(req: DownloadRequest, request: Request):
     """Validate the request and start downloading in the background."""
     job = _build_job(req)
+
+    # Shares the download bucket with /api/download, so the REST surface is
+    # rate limited rather than relying on the 503 slot check alone.
+    await _check_rate_limit(
+        RATE_LIMIT_BUCKET_DOWNLOAD, _client_host(request), RATE_LIMIT_MAX_REQUESTS
+    )
+
     if not await _try_acquire_slot():
         raise HTTPException(status_code=503, detail=BUSY_DETAIL)
 
