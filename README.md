@@ -98,7 +98,7 @@ docker compose up -d
 **Two ways to provide credentials:**
 
 - **Environment variables** — set `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` on the container. When set, the settings panel displays a confirmation notice so you know downloads will work without any browser-side configuration.
-- **Web UI** — click the gear icon and enter them in the browser (encrypted with AES-256-GCM, stored locally). Browser credentials take priority over server env vars if both are present.
+- **Web UI** — click the gear icon and enter them in the browser (obfuscated with AES-256-GCM and stored in `localStorage` — see [Credential handling](#credential-handling)). Browser credentials take priority over server env vars if both are present.
 
 <br>
 
@@ -122,7 +122,7 @@ docker compose up -d
 <td width="50%">
 
 ### Security
-- AES-256-GCM encrypted credential storage
+- Credential storage obfuscated with AES-256-GCM (see [Credential handling](#credential-handling))
 - Non-root Docker container
 - Read-only filesystem
 - All Linux capabilities dropped
@@ -177,7 +177,7 @@ docker compose up -d
 │  │  - Album art preview (oEmbed)             │  │
 │  │  - Per-track SSE progress                 │  │
 │  │  - Drag & drop, toasts, sound FX          │  │
-│  │  - AES-256-GCM encrypted localStorage     │  │
+│  │  - AES-GCM obfuscated localStorage        │  │
 │  └──────────────────┬────────────────────────┘  │
 └─────────────────────┼───────────────────────────┘
                       │ HTTPS / HTTP
@@ -301,7 +301,7 @@ spotify-downloader/
 │   ├── __init__.py
 │   └── main.py              # FastAPI backend, job manager, purge loop
 ├── static/
-│   ├── index.html           # Spotify-themed SPA with encrypted storage
+│   ├── index.html           # Spotify-themed SPA with obfuscated storage
 │   └── favicon.png
 ├── Dockerfile               # Multi-stage, hardened, non-root
 ├── docker-compose.yml       # Production-ready with security opts
@@ -322,10 +322,38 @@ USER appuser                          # Non-root user
 security_opt: [no-new-privileges]     # No privilege escalation
 read_only: true                       # Immutable root filesystem
 cap_drop: [ALL]                       # All capabilities dropped
-cap_add: [NET_BIND_SERVICE]           # Only what's needed
+cap_add: [NET_BIND_SERVICE]           # Bind :80
+cap_add: [CHOWN, SETUID, SETGID]      # Entrypoint: chown the downloads volume,
+                                      # then drop to appuser (cleared on that switch)
 tmpfs: [/tmp:noexec,size=2G]          # Ephemeral, non-executable temp
 tmpfs: [/home/appuser:uid=999,...]    # Writable home for spotdl config + yt-dlp/Deno caches
 ```
+
+### Credential handling
+
+Two things are worth stating plainly, because the UI and earlier versions of this
+README overstated them:
+
+- **Browser storage is obfuscation, not encryption.** Credentials entered in the
+  web UI are AES-256-GCM encrypted before being written to `localStorage`, but
+  the key is generated and stored in `localStorage` right next to the ciphertext
+  (`sp_creds_key` alongside `sp_creds_enc`). Anything that can read
+  `localStorage` — XSS, a malicious extension, or anyone with access to the
+  browser profile — can therefore decrypt them; the layer only defeats casual
+  inspection. Deriving the key from a passphrase would make it real protection,
+  at the cost of prompting on every use.
+- **The Spotify client secret is visible inside the container.** Credentials are
+  passed to spotdl as `--client-id` / `--client-secret` arguments, so the secret
+  appears in `/proc/<pid>/cmdline` while a download runs. procfs only exposes
+  another process's cmdline to a caller with ptrace permission (same uid, or
+  root) — in practice someone who can already `docker exec` into the container,
+  and who therefore already has full access to it. spotdl reads credentials only
+  from argv or a single fixed `~/.spotdl/config.json`, and up to
+  `MAX_CONCURRENT_JOBS` jobs with *different* credentials run concurrently, so a
+  shared config file would race. This is accepted rather than fixed.
+
+Credentials are still never persisted server-side: they are read from the
+request, passed to spotdl, and cleared from the job immediately afterwards.
 
 <br>
 
@@ -347,6 +375,17 @@ tmpfs: [/home/appuser:uid=999,...]    # Writable home for spotdl config + yt-dlp
 
 ## Changelog
 
+### Unreleased
+
+- **Fix (#23):** Removed the unauthenticated `DELETE /api/cleanup/{job_id}` endpoint — it was undocumented, unused by the web UI, and deleted a running job's files out from under spotdl. `DELETE /api/v1/jobs/{job_id}` covers cleanup and refuses while a job is running.
+- **Fix (#25):** `/api/preview` normalises `spotify:` URIs to their `https://open.spotify.com/` form before calling oEmbed, so previews now work for the same links downloads accept.
+- **Fix (#15):** Rate limiting is no longer limited to `/api/download`. The limiter now takes a bucket and a ceiling: `/api/v1/jobs` shares the download bucket, so "max requests per window per IP" means the same thing on both surfaces, and `/api/preview` gets its own ceiling (30/min per IP) since the UI calls it from a debounced handler.
+- **Fix (#26):** The README and the in-app security panel now describe browser credential storage honestly — the AES-256-GCM key is stored beside the ciphertext, so it is obfuscation, not protection against local access.
+- **Fix (#24):** Documented the residual credential exposure in the README: the Spotify client secret is visible in the spotdl argv inside the container. Accepted rather than fixed, for the reasons given in [Credential handling](#credential-handling).
+- **New (#27):** Added a pytest suite covering the URL helpers, job building, the media-type table, the rate limiter and the SSE progress path, plus a CI job that gates the image build on it.
+- **Docs (#28):** Collapsed the duplicated `v2.4.1` changelog entry.
+- **Docs (#29):** Added an MIT `LICENSE` file matching the existing SPDX headers.
+
 ### v2.4.2
 
 - **Fix (#21):** The `downloads` named volume is now chowned to `appuser` at container start. A pre-existing root-owned volume made the writability probe fail, so downloads silently fell back to `/tmp` and were lost on restart. `docker-compose.yml` also declared `ports` and `environment` twice, which stopped the file parsing at all.
@@ -358,13 +397,7 @@ tmpfs: [/home/appuser:uid=999,...]    # Writable home for spotdl config + yt-dlp
 
 ### v2.4.1
 
-- **Fix:** All v2.4.0 bug fixes carried forward
-- **Fix:** Fixed `TRACK_DONE_RE` regex to properly parse spotdl progress output
-- **Fix:** Added `spotify:` scheme URL support for track, album, and playlist links
-- **Fix:** Fixed rate limit enforcement race condition under concurrent requests
-- **Fix:** Improved `/api/download` request validation and connection host handling
-- **Fix:** Added shared `httpx.AsyncClient` to prevent socket exhaustion
-- **Fix:** Fixed Docker volume ownership for named downloads volume
+- Re-release of the v2.4.0 fixes — cut from the same commit, no code differences.
 
 ### v2.4.0
 
@@ -443,7 +476,7 @@ tmpfs: [/home/appuser:uid=999,...]    # Writable home for spotdl config + yt-dlp
 | **Download Engine** | spotdl + yt-dlp + Deno + ffmpeg |
 | **Frontend** | Vanilla HTML/CSS/JS |
 | **Progress** | Server-Sent Events (SSE) |
-| **Encryption** | Web Crypto API (AES-256-GCM) |
+| **Credential storage** | Web Crypto API (AES-256-GCM) in `localStorage` |
 | **Container** | Docker (multi-stage, slim) |
 
 <br>
