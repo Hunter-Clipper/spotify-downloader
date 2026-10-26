@@ -5,6 +5,8 @@
 # Spotify Downloader
 
 ### Grab your favorite tracks, albums & playlists in **MP3, FLAC, WAV, or OGG**
+**Maintained by**: Hunter (@Hunter-Clipper) | [GitHub](https://github.com/Hunter-Clipper/spotify-downloader)
+
 
 [![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/pbdweller/spotify-downloader)
 [![Python](https://img.shields.io/badge/Python-3.14-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
