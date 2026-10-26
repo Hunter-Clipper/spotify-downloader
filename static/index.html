@@ -1479,13 +1479,13 @@
 
         function renderSecurityInfo() {
             securityInfo.innerHTML = hasSubtleCrypto
-                ? '<strong>How your credentials are protected:</strong><ul>'
-                    + '<li>Encrypted with <strong>AES-256-GCM</strong> via the Web Crypto API before being stored in your browser\'s localStorage.</li>'
-                    + '<li>The encryption key is auto-generated and unique to this browser.</li>'
+                ? '<strong>How your credentials are stored:</strong><ul>'
+                    + '<li>Obfuscated with <strong>AES-256-GCM</strong> via the Web Crypto API before being written to this browser\'s localStorage.</li>'
+                    + '<li>The key is generated per browser and stored in localStorage <strong>alongside</strong> the data — so this hides credentials from casual inspection, but is not protection against anything that can read this browser\'s storage (a malicious extension, XSS, or local access).</li>'
                     + SECURITY_INFO_SHARED
-                : '<strong>Security notice (HTTP mode):</strong><ul>'
-                    + '<li>Full AES-256 encryption requires <strong>HTTPS</strong>. Over plain HTTP, credentials are obfuscated (not plaintext) but not fully encrypted.</li>'
-                    + '<li>For full encryption, access this app via <strong>https://</strong> or <strong>localhost</strong>.</li>'
+                : '<strong>Storage notice (HTTP mode):</strong><ul>'
+                    + '<li>The Web Crypto API is unavailable over plain HTTP, so credentials are XOR-obfuscated (not plaintext) but not encrypted.</li>'
+                    + '<li>Access this app over <strong>https://</strong> or <strong>localhost</strong> to get AES-256-GCM obfuscation instead.</li>'
                     + SECURITY_INFO_SHARED;
         }
 

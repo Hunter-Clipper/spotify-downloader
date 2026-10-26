@@ -58,11 +58,9 @@ RATE_LIMIT_WINDOW = 60              # Rate limit window in seconds
 RATE_LIMIT_MAX_REQUESTS = 10        # Max download requests per window per IP
 PREVIEW_RATE_LIMIT_MAX_REQUESTS = 30  # Max preview requests per window per IP
 
-# Rate limit buckets. The key is "<bucket>:<client ip>", so the web UI and the
-# REST API share one download budget while previews get their own (the frontend
-# calls preview from a debounced paste/blur handler, so it needs more headroom).
-RATE_LIMIT_BUCKET_DOWNLOAD = "download"
-RATE_LIMIT_BUCKET_PREVIEW = "preview"
+# # Rate limit buckets - define these once and use everywhere
+DOWNLOAD_BUCKET = "download"
+PREVIEW_BUCKET = "preview"
 
 ALLOWED_FORMATS = {"mp3", "flac", "wav", "ogg"}
 ALLOWED_BITRATES = {"128k", "192k", "256k", "320k"}
@@ -203,14 +201,17 @@ async def _check_rate_limit(bucket: str, ip: str, max_requests: int) -> None:
         timestamps.append(now)
 
 
+UNKNOWN_CLIENT = "unknown"  # Constants
+
+
 def _client_host(request: Request) -> str:
     """Best-effort client address, used as the rate limit key.
 
-    Falls back to "unknown" for connections with no client (proxies, WebSockets).
+    Falls back to UNKNOWN_CLIENT for connections with no client (proxies, WebSockets).
     """
     if request.client and request.client.host:
         return request.client.host
-    return "unknown"
+    return UNKNOWN_CLIENT
 
 
 async def _try_acquire_slot() -> bool:
@@ -251,12 +252,12 @@ def _terminal_event(job: Job) -> str:
 
 def _require_api_key(
     x_api_key: str = Header(default=""),
-    authorization: str = Header(default=""),
+    authorization: str | None = Header(default=None),
 ) -> None:
-    """Authenticate /api/v1 requests via X-API-Key or Authorization: Bearer."""
+    """Authenticate /api/v1 requests via X-API-Key or Authorization header."""
     if not API_KEY:
         raise HTTPException(status_code=503, detail="API is disabled. Set the API_KEY environment variable to enable it.")
-    token = x_api_key or authorization.removeprefix("Bearer ").strip()
+    token = x_api_key or (authorization or "").removeprefix("Bearer ").strip()
     if not secrets.compare_digest(token.encode(), API_KEY.encode()):
         raise HTTPException(status_code=401, detail="Invalid or missing API key.")
 
@@ -580,7 +581,7 @@ async def download(req: DownloadRequest, request: Request):
     # /api/v1/jobs shares this bucket, so the configured "max requests per
     # window per IP" means the same thing on both surfaces.
     await _check_rate_limit(
-        RATE_LIMIT_BUCKET_DOWNLOAD, _client_host(request), RATE_LIMIT_MAX_REQUESTS
+        DOWNLOAD_BUCKET, _client_host(request), RATE_LIMIT_MAX_REQUESTS
     )
 
     # Acquire a slot atomically; the job starts immediately (not when the SSE
@@ -644,7 +645,7 @@ async def preview(req: PreviewRequest, request: Request):
 
     # Rate-limit AFTER validation so invalid URLs cannot exhaust the budget.
     await _check_rate_limit(
-        RATE_LIMIT_BUCKET_PREVIEW, _client_host(request), PREVIEW_RATE_LIMIT_MAX_REQUESTS
+        PREVIEW_BUCKET, _client_host(request), PREVIEW_RATE_LIMIT_MAX_REQUESTS
     )
 
     try:
@@ -729,7 +730,7 @@ async def api_create_job(req: DownloadRequest, request: Request):
     # Shares the download bucket with /api/download, so the REST surface is
     # rate limited rather than relying on the 503 slot check alone.
     await _check_rate_limit(
-        RATE_LIMIT_BUCKET_DOWNLOAD, _client_host(request), RATE_LIMIT_MAX_REQUESTS
+        DOWNLOAD_BUCKET, _client_host(request), RATE_LIMIT_MAX_REQUESTS
     )
 
     if not await _try_acquire_slot():
