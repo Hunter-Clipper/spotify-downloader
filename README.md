@@ -11,6 +11,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/pbdweller/spotify-downloader)
 [![Python](https://img.shields.io/badge/Python-3.14-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Build & Push to Docker Hub](https://github.com/Hunter-Clipper/spotify-downloader/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Hunter-Clipper/spotify-downloader/actions/workflows/docker-publish.yml)
 
 <br>
 
