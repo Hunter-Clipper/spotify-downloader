@@ -9,6 +9,7 @@
 
 
 [![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/pbdweller/spotify-downloader)
+[![Build & Push to Docker Hub](https://github.com/Hunter-Clipper/spotify-downloader/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Hunter-Clipper/spotify-downloader/actions/workflows/docker-publish.yml)
 [![Python](https://img.shields.io/badge/Python-3.14-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 
@@ -19,7 +20,6 @@
 <img src="https://img.shields.io/badge/Metadata-Included-1DB954?style=flat-square" alt="Metadata">
 <img src="https://img.shields.io/badge/Album_Art-Embedded-1DB954?style=flat-square" alt="Album Art">
 <img src="https://img.shields.io/badge/Lyrics-Synced-1DB954?style=flat-square" alt="Lyrics">
-[![Build & Push to Docker Hub](https://github.com/Hunter-Clipper/spotify-downloader/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Hunter-Clipper/spotify-downloader/actions/workflows/docker-publish.yml)
 
 <br><br>
 
