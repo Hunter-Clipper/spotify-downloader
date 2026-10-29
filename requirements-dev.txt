@@ -2,4 +2,4 @@
 # the runtime image (see .dockerignore).
 -r requirements.txt
 pytest==9.1.1
-pytest-asyncio==1.4.0
+pytest-asyncio==1.4.1
