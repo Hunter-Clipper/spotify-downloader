@@ -4,5 +4,5 @@ uvloop==0.23.0
 httptools==0.9.0
 anyio==3.7.1
 spotdl==4.5.2
-yt-dlp==2026.8.19
+yt-dlp==2026.10.26
 httpx==0.28.1
